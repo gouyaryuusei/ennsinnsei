@@ -3,10 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>EBT: ネガティブ速度・負荷抜けチェッカー</title>
+  <title>EBT: 全身ポーズ認識＆ネガティブ速度チェッカー</title>
+  
+  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <!-- MediaPipe Pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
   <style>
     :root {
       --bg-base: #0a0e17;
@@ -19,7 +26,7 @@
       --accent-warn: #ef4444;
       --text-main: #f3f4f6;
       --text-muted: #9ca3af;
-      --container-max-w: 480px;
+      --container-max-w: 640px;
     }
 
     * {
@@ -76,7 +83,6 @@
       color: #93c5fd;
     }
 
-    /* メインコンテナ */
     .app-layout {
       width: 100%;
       max-width: var(--container-max-w);
@@ -86,7 +92,7 @@
       transition: max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    /* コントロールバー（画面サイズ、カメラ切替） */
+    /* ツールバー */
     .toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -140,7 +146,7 @@
       box-shadow: 0 0 12px rgba(37, 99, 235, 0.5);
     }
 
-    /* カメラビューコンテナ */
+    /* カメラビューコンテナ（横伸び防止・アスペクト比保持） */
     .camera-container {
       position: relative;
       width: 100%;
@@ -148,21 +154,23 @@
       border-radius: 16px;
       overflow: hidden;
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-color);
-      aspect-ratio: 4 / 3;
       display: flex;
       align-items: center;
       justify-content: center;
+      min-height: 280px;
     }
 
     video {
       display: none;
     }
 
+    /* 正確なアスペクト比を維持して表示 */
     canvas {
       width: 100%;
-      height: 100%;
-      object-fit: contain;
+      height: auto;
+      max-height: 80vh;
       display: block;
+      object-fit: contain;
     }
 
     /* カメラ未起動時のプレースホルダ */
@@ -184,9 +192,9 @@
     }
 
     .placeholder-icon {
-      font-size: 2.8rem;
+      font-size: 3rem;
       margin-bottom: 12px;
-      opacity: 0.85;
+      opacity: 0.9;
       animation: float 3s ease-in-out infinite;
     }
 
@@ -196,7 +204,7 @@
     }
 
     .placeholder-title {
-      font-size: 1.1rem;
+      font-size: 1.15rem;
       font-weight: 700;
       margin-bottom: 6px;
     }
@@ -204,9 +212,9 @@
     .placeholder-desc {
       font-size: 0.82rem;
       color: var(--text-muted);
-      max-width: 320px;
-      line-height: 1.4;
-      margin-bottom: 16px;
+      max-width: 380px;
+      line-height: 1.5;
+      margin-bottom: 18px;
     }
 
     .btn-primary {
@@ -228,14 +236,9 @@
     .btn-primary:hover {
       background: linear-gradient(135deg, #3b82f6, #2563eb);
       transform: translateY(-1px);
-      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.5);
     }
 
-    .btn-primary:active {
-      transform: translateY(1px);
-    }
-
-    /* 画面内オーバーレイ (HUD) */
+    /* HUDオーバーレイ */
     .hud-overlay {
       position: absolute;
       top: 10px;
@@ -248,11 +251,11 @@
     }
 
     .hud-chip {
-      background: rgba(0, 0, 0, 0.65);
+      background: rgba(0, 0, 0, 0.7);
       backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 20px;
-      padding: 4px 10px;
+      padding: 5px 12px;
       font-size: 0.75rem;
       font-weight: 600;
       display: flex;
@@ -273,7 +276,7 @@
     .hud-chip.warn {
       color: #f87171;
       border-color: rgba(248, 113, 113, 0.5);
-      background: rgba(185, 28, 28, 0.6);
+      background: rgba(185, 28, 28, 0.7);
     }
 
     .pulse-dot {
@@ -290,20 +293,20 @@
       50% { opacity: 0.4; transform: scale(0.8); }
     }
 
-    /* フルスクリーン時などのクイックHUD */
+    /* フルスクリーン時用HUD */
     .fullscreen-stats {
       position: absolute;
-      bottom: 12px;
-      left: 12px;
-      right: 12px;
-      background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(10px);
+      bottom: 14px;
+      left: 14px;
+      right: 14px;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(12px);
       border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 12px;
       padding: 10px 14px;
       display: none;
       grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
+      gap: 8px;
       text-align: center;
       z-index: 4;
     }
@@ -332,8 +335,6 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      position: relative;
-      overflow: hidden;
     }
 
     .metric-header {
@@ -361,7 +362,7 @@
     .status-warn { color: var(--accent-warn); text-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
     .status-concentric { color: var(--accent-blue); }
 
-    /* 設定・調整パネル */
+    /* 設定パネル */
     .settings-panel {
       background: var(--bg-card);
       backdrop-filter: blur(12px);
@@ -374,7 +375,7 @@
     }
 
     .settings-title {
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       font-weight: 700;
       color: #93c5fd;
       display: flex;
@@ -389,32 +390,6 @@
       font-size: 0.8rem;
       gap: 12px;
     }
-
-    .color-presets {
-      display: flex;
-      gap: 6px;
-    }
-
-    .color-btn {
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      border: 2px solid transparent;
-      cursor: pointer;
-      position: relative;
-      transition: transform 0.15s;
-    }
-
-    .color-btn:hover { transform: scale(1.1); }
-    .color-btn.active {
-      border-color: #fff;
-      box-shadow: 0 0 8px currentColor;
-    }
-
-    .color-btn[data-color="red"] { background: #ef4444; color: #ef4444; }
-    .color-btn[data-color="orange"] { background: #f97316; color: #f97316; }
-    .color-btn[data-color="green"] { background: #10b981; color: #10b981; }
-    .color-btn[data-color="blue"] { background: #3b82f6; color: #3b82f6; }
 
     input[type="range"] {
       flex: 1;
@@ -434,8 +409,8 @@
 
   <header>
     <div class="title-badge">
-      <h1>EBT Velocity Tracker</h1>
-      <span class="version-tag">Pro v2.0</span>
+      <h1>EBT Pose Velocity Tracker</h1>
+      <span class="version-tag">AI 全身認識</span>
     </div>
     <div id="activeCameraBadge" style="font-size: 0.72rem; color: var(--text-muted);">
       カメラ: 未起動
@@ -446,12 +421,12 @@
     
     <!-- ツールバー：画面サイズ＆カメラ切り替え -->
     <div class="toolbar">
-      <!-- 画面サイズ切り替え -->
+      <!-- 画面サイズ -->
       <div class="tool-group">
         <span class="tool-label">表示:</span>
-        <button id="sizeStdBtn" class="btn-tool active" title="標準サイズ (480px)">標準</button>
-        <button id="sizeLgBtn" class="btn-tool" title="大画面 (850px)">大画面</button>
-        <button id="sizeFullWidthBtn" class="btn-tool" title="画面幅いっぱい">最大</button>
+        <button id="sizeStdBtn" class="btn-tool" title="標準 (520px)">標準</button>
+        <button id="sizeLgBtn" class="btn-tool active" title="大画面 (850px)">大画面</button>
+        <button id="sizeFullWidthBtn" class="btn-tool" title="幅いっぱい">最大</button>
         <button id="fullscreenBtn" class="btn-tool" title="全画面表示">⛶ 全画面</button>
       </div>
 
@@ -466,23 +441,23 @@
       </div>
     </div>
 
-    <!-- カメラ＆描画ビュー -->
+    <!-- カメラ＆描画キャンバス（横伸び防止） -->
     <div class="camera-container" id="cameraBox">
       <video id="webcam" playsinline autoplay muted></video>
       <canvas id="output"></canvas>
 
-      <!-- HUD（状態バッジ） -->
+      <!-- HUD（認識状態） -->
       <div class="hud-overlay">
         <div id="hudMarkerStatus" class="hud-chip searching">
           <span class="pulse-dot"></span>
-          <span id="hudStatusText">マーカー探索中</span>
+          <span id="hudStatusText">全身をカメラに映してください</span>
         </div>
         <div id="hudVelocityTag" class="hud-chip" style="font-family: 'JetBrains Mono', monospace;">
           0 px/s
         </div>
       </div>
 
-      <!-- 全画面時のフローティングメーター -->
+      <!-- 全画面時のHUD -->
       <div class="fullscreen-stats">
         <div>
           <div class="metric-label">フェーズ</div>
@@ -497,17 +472,17 @@
           <div id="fsTut" style="font-family: 'JetBrains Mono'; font-weight: 700; font-size: 0.95rem;">0.0s</div>
         </div>
         <div>
-          <div class="metric-label">レップ</div>
+          <div class="metric-label">レップ数</div>
           <div id="fsRep" style="font-family: 'JetBrains Mono'; font-weight: 700; font-size: 0.95rem; color: #60a5fa;">0</div>
         </div>
       </div>
 
-      <!-- 初期プレースホルダ -->
+      <!-- プレースホルダ -->
       <div class="camera-placeholder" id="placeholder">
-        <div class="placeholder-icon">🎯</div>
-        <div class="placeholder-title">高視認性 EBT トラッカー</div>
+        <div class="placeholder-icon">🧍</div>
+        <div class="placeholder-title">AI 全身ポーズ＆速度トラッカー</div>
         <div class="placeholder-desc">
-          赤色マーカー（またはバーベルの目印）を追跡し、ネガティブ動作の速度と負荷抜けをリアルタイム検知します。
+          AIが全身と関節を自動認識。体の中心に一直線マーカー、各関節に丸マーカーを表示し、ブレのない正確なネガティブ速度とレップ数を計測します。
         </div>
         <button id="startBtn" class="btn-primary">
           <span>📷</span> カメラ起動 / 計測開始
@@ -515,7 +490,7 @@
       </div>
     </div>
 
-    <!-- 通常ダッシュボード -->
+    <!-- ダッシュボード -->
     <div class="dashboard">
       <div class="metric-card">
         <div class="metric-header">
@@ -547,37 +522,35 @@
       </div>
     </div>
 
-    <!-- 視認性・マーカー調整パネル -->
+    <!-- 設定パネル -->
     <div class="settings-panel">
       <div class="settings-title">
-        <span>⚙️</span> マーカー視認性・検出設定
+        <span>⚙️</span> トラッキング設定 & 補正
       </div>
 
-      <!-- 検出領域ハイライトトグル -->
+      <!-- スムージング（ブレ除去）強度 -->
       <div class="setting-row">
-        <span>🔍 認識ピクセルを強調（視認デバッグ）</span>
-        <button id="toggleMaskBtn" class="btn-tool">OFF</button>
+        <span>ブレ抑制（スムージング強度）:</span>
+        <input type="range" id="smoothingRange" min="1" max="9" value="7">
+        <span id="smoothingVal" style="font-family: 'JetBrains Mono'; font-size: 0.8rem; width: 28px;">7</span>
       </div>
 
-      <!-- マーカーカラー選択 -->
+      <!-- 追跡基準部位 -->
       <div class="setting-row">
-        <span>追跡マーカーの色:</span>
-        <div class="color-presets">
-          <button class="color-btn active" data-color="red" title="赤色（推奨）"></button>
-          <button class="color-btn" data-color="orange" title="オレンジ"></button>
-          <button class="color-btn" data-color="green" title="蛍光グリーン"></button>
-          <button class="color-btn" data-color="blue" title="ブルー"></button>
+        <span>追跡基準点:</span>
+        <div style="display: flex; gap: 6px;">
+          <button id="trackHipBtn" class="btn-tool active">腰 (スクワット/デッド)</button>
+          <button id="trackShoulderBtn" class="btn-tool">肩 (懸垂/プレス)</button>
         </div>
       </div>
 
-      <!-- 感度調整 -->
+      <!-- 直線ガイドと関節マーカーの表示トグル -->
       <div class="setting-row">
-        <span>検出感度:</span>
-        <input type="range" id="sensitivityRange" min="20" max="80" value="45">
-        <span id="sensitivityVal" style="font-family: 'JetBrains Mono'; font-size: 0.75rem; width: 28px;">45</span>
+        <span>体幹・一直線ガイド表示:</span>
+        <button id="toggleGuideBtn" class="btn-tool active">ON</button>
       </div>
 
-      <!-- リセットボタン -->
+      <!-- リセット -->
       <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
         <button id="resetRepBtn" class="btn-tool" style="color: #f87171;">レップ数リセット</button>
       </div>
@@ -586,23 +559,23 @@
   </div>
 
   <script>
-    // --- DOM要素取得 ---
+    // --- DOM要素 ---
     const appLayout = document.getElementById('appLayout');
     const cameraBox = document.getElementById('cameraBox');
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('output');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d');
     const placeholder = document.getElementById('placeholder');
     const startBtn = document.getElementById('startBtn');
     const activeCameraBadge = document.getElementById('activeCameraBadge');
 
-    // サイズボタン
+    // 画面サイズボタン
     const sizeStdBtn = document.getElementById('sizeStdBtn');
     const sizeLgBtn = document.getElementById('sizeLgBtn');
     const sizeFullWidthBtn = document.getElementById('sizeFullWidthBtn');
     const fullscreenBtn = document.getElementById('fullscreenBtn');
 
-    // カメラ・ミラーボタン
+    // カメラボタン
     const switchCamBtn = document.getElementById('switchCamBtn');
     const mirrorToggleBtn = document.getElementById('mirrorToggleBtn');
     const camText = document.getElementById('camText');
@@ -621,36 +594,44 @@
     const hudVelocityTag = document.getElementById('hudVelocityTag');
 
     // 設定要素
-    const toggleMaskBtn = document.getElementById('toggleMaskBtn');
-    const sensitivityRange = document.getElementById('sensitivityRange');
-    const sensitivityVal = document.getElementById('sensitivityVal');
+    const smoothingRange = document.getElementById('smoothingRange');
+    const smoothingVal = document.getElementById('smoothingVal');
+    const trackHipBtn = document.getElementById('trackHipBtn');
+    const trackShoulderBtn = document.getElementById('trackShoulderBtn');
+    const toggleGuideBtn = document.getElementById('toggleGuideBtn');
     const resetRepBtn = document.getElementById('resetRepBtn');
-    const colorBtns = document.querySelectorAll('.color-btn');
 
-    // --- カメラ・ストリーム状態 ---
-    let currentFacingMode = 'user'; // デフォルトは自撮り/インカメ（使いやすさ重視）
-    let isMirror = true;           // インカメ時はデフォルトでミラー有効
-    let currentStream = null;
+    // --- カメラ＆動作状態 ---
+    let currentFacingMode = 'user'; // インカメ初期値
+    let isMirror = true;
     let isCameraRunning = false;
+    let currentStream = null;
+    let poseDetector = null;
 
-    // --- マーカー・検出設定 ---
-    let selectedColor = 'red';
-    let sensitivity = 45;
-    let showMask = false;
-    let trail = []; // マーカーの過去位置軌跡 [{x, y, isWarning}]
+    // --- トラッキング＆ブレ防止フィルタ ---
+    let trackingTarget = 'hip'; // 'hip' または 'shoulder'
+    let showCenterGuide = true;
+    let smoothAlpha = 0.25; // EMA係数 (小さいほど強力に平滑化・ブレ除去)
 
-    // --- 運動トラッキング状態 ---
-    let lastY = null;
-    let lastTimestamp = null;
-    let phase = 'STILL'; // STILL, ECCENTRIC, CONCENTRIC
+    // スムージング用バッファ
+    let smoothedTrackPoint = null;
+    let smoothedLandmarks = null;
+    let smoothedVelocity = 0;
+
+    // --- 厳密なレップ数判定ステートマシン ---
+    // 状態: 'TOP' (開始位置) -> 'ECCENTRIC' (下降中) -> 'BOTTOM' (最下点到達) -> 'CONCENTRIC' (挙上中) -> カウント完了
+    let motionState = 'TOP';
+    let topBaselineY = null;     // 直立時の最上点Y
+    let bottomY = null;          // 最下点Y
+    let minDisplacement = 35;    // レップと認定する最小ストローク幅 (px)
     let eccentricStartTime = 0;
     let repCount = 0;
+    let lastRepTime = 0;         // デバウンス用
     let isWarning = false;
-    let targetLocked = false;
 
-    // 閾値設定
-    const VELOCITY_MOVE_THRESHOLD = 30; // px/s
-    const MAX_ALLOWED_ECC_VELOCITY = 260; // px/s 超えると落下警告
+    // 速度閾値
+    const VELOCITY_MOVE_THRESHOLD = 25; // px/s 運動開始判定
+    const MAX_ALLOWED_ECC_VELOCITY = 240; // px/s 落下警告
 
     // Web Audio API
     let audioCtx = null;
@@ -668,15 +649,35 @@
         gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
         osc.stop(audioCtx.currentTime + duration);
       } catch (e) {
-        console.warn("Audio error:", e);
+        console.warn(e);
       }
     }
 
-    // --- カメラ制御 ---
+    // --- MediaPipe Pose初期化 ---
+    function initPose() {
+      if (poseDetector) return;
+      poseDetector = new Pose({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+      });
+
+      poseDetector.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      poseDetector.onResults(onPoseResults);
+    }
+
+    // --- カメラ起動 ---
     async function startCamera() {
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
+
+      initPose();
 
       const constraints = {
         video: {
@@ -693,17 +694,21 @@
         await video.play();
 
         video.onloadedmetadata = () => {
+          // カメラ映像のピクセルサイズにCanvasを一致させる
           canvas.width = video.videoWidth || 640;
           canvas.height = video.videoHeight || 480;
+          // 横伸び防止: アスペクト比をコンテナにも反映
           cameraBox.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
         };
 
         isCameraRunning = true;
         placeholder.classList.add('hidden');
         updateCameraUI();
-        requestAnimationFrame(processFrame);
+
+        // フレーム処理ループ
+        processVideoLoop();
       } catch (err) {
-        console.error("Camera access error:", err);
+        console.error("Camera Error:", err);
         alert("カメラの起動に失敗しました: " + err.message);
       }
     }
@@ -711,22 +716,19 @@
     function updateCameraUI() {
       const isFront = (currentFacingMode === 'user');
       camText.innerText = isFront ? "背面カメラへ" : "インカメへ";
-      activeCameraBadge.innerText = `カメラ: ${isFront ? "インカメラ (前面)" : "背面カメラ"}`;
+      activeCameraBadge.innerText = `カメラ: ${isFront ? "インカメラ" : "背面カメラ"}`;
       mirrorToggleBtn.classList.toggle('active', isMirror);
     }
 
-    // カメラ切り替え
+    // カメラ切替
     switchCamBtn.addEventListener('click', async () => {
       currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
-      // インカメになったときはミラーON、背面はミラーOFFを自動推奨
       isMirror = (currentFacingMode === 'user');
       updateCameraUI();
-      if (isCameraRunning) {
-        await startCamera();
-      }
+      if (isCameraRunning) await startCamera();
     });
 
-    // ミラートグル
+    // ミラー切替
     mirrorToggleBtn.addEventListener('click', () => {
       isMirror = !isMirror;
       mirrorToggleBtn.classList.toggle('active', isMirror);
@@ -738,14 +740,14 @@
       startCamera();
     });
 
-    // --- 画面サイズ切り替え機能 ---
-    function setSize(mode) {
+    // 画面サイズ切替
+    function setAppSize(mode) {
       sizeStdBtn.classList.remove('active');
       sizeLgBtn.classList.remove('active');
       sizeFullWidthBtn.classList.remove('active');
 
       if (mode === 'std') {
-        document.documentElement.style.setProperty('--container-max-w', '480px');
+        document.documentElement.style.setProperty('--container-max-w', '520px');
         sizeStdBtn.classList.add('active');
       } else if (mode === 'lg') {
         document.documentElement.style.setProperty('--container-max-w', '850px');
@@ -756,16 +758,14 @@
       }
     }
 
-    sizeStdBtn.addEventListener('click', () => setSize('std'));
-    sizeLgBtn.addEventListener('click', () => setSize('lg'));
-    sizeFullWidthBtn.addEventListener('click', () => setSize('full'));
+    sizeStdBtn.addEventListener('click', () => setAppSize('std'));
+    sizeLgBtn.addEventListener('click', () => setAppSize('lg'));
+    sizeFullWidthBtn.addEventListener('click', () => setAppSize('full'));
 
-    // フルスクリーン機能
+    // 全画面表示
     fullscreenBtn.addEventListener('click', () => {
       if (!document.fullscreenElement) {
-        cameraBox.requestFullscreen().catch(err => {
-          alert(`全画面表示できませんでした: ${err.message}`);
-        });
+        cameraBox.requestFullscreen().catch(e => alert("全画面エラー: " + e.message));
       } else {
         document.exitFullscreen();
       }
@@ -781,24 +781,32 @@
       }
     });
 
-    // --- マーカー調整 & 設定イベント ---
-    toggleMaskBtn.addEventListener('click', () => {
-      showMask = !showMask;
-      toggleMaskBtn.classList.toggle('active', showMask);
-      toggleMaskBtn.innerText = showMask ? "ON" : "OFF";
+    // 設定操作
+    smoothingRange.addEventListener('input', (e) => {
+      const v = parseInt(e.target.value);
+      smoothingVal.innerText = v;
+      // 1 (低平滑化・反応優先) 〜 9 (強力平滑化・ブレ極小)
+      smoothAlpha = 0.55 - (v * 0.045); // 0.10 〜 0.50
     });
 
-    sensitivityRange.addEventListener('input', (e) => {
-      sensitivity = parseInt(e.target.value);
-      sensitivityVal.innerText = sensitivity;
+    trackHipBtn.addEventListener('click', () => {
+      trackingTarget = 'hip';
+      trackHipBtn.classList.add('active');
+      trackShoulderBtn.classList.remove('active');
+      topBaselineY = null;
     });
 
-    colorBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        colorBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        selectedColor = btn.getAttribute('data-color');
-      });
+    trackShoulderBtn.addEventListener('click', () => {
+      trackingTarget = 'shoulder';
+      trackShoulderBtn.classList.add('active');
+      trackHipBtn.classList.remove('active');
+      topBaselineY = null;
+    });
+
+    toggleGuideBtn.addEventListener('click', () => {
+      showCenterGuide = !showCenterGuide;
+      toggleGuideBtn.classList.toggle('active', showCenterGuide);
+      toggleGuideBtn.innerText = showCenterGuide ? "ON" : "OFF";
     });
 
     resetRepBtn.addEventListener('click', () => {
@@ -807,219 +815,162 @@
       fsRep.innerText = 0;
       tutDisplay.innerText = "0.0s";
       fsTut.innerText = "0.0s";
+      motionState = 'TOP';
+      topBaselineY = null;
     });
 
-    // --- 色判定ロジック ---
-    function isTargetColor(r, g, b) {
-      const tol = sensitivity; // 20 ~ 80
-      if (selectedColor === 'red') {
-        // 赤判定: Rが十分高く、G/Bよりtol以上大きい
-        return (r > 130 && (r - g) > tol && (r - b) > tol);
-      } else if (selectedColor === 'orange') {
-        // オレンジ判定: R高、G中、B低
-        return (r > 160 && g > 70 && g < 180 && (r - g) > 25 && (g - b) > tol);
-      } else if (selectedColor === 'green') {
-        // 蛍光緑判定: G高、R/Bより大きい
-        return (g > 130 && (g - r) > tol && (g - b) > tol);
-      } else if (selectedColor === 'blue') {
-        // 青判定: B高、R/Gより大きい
-        return (b > 130 && (b - r) > tol && (b - g) > tol);
-      }
-      return false;
-    }
-
-    // --- 画像解析 & マーカー抽出 ---
-    function trackColor(frameData) {
-      const data = frameData.data;
-      const w = canvas.width;
-      const h = canvas.height;
-      let totalX = 0, totalY = 0, count = 0;
-      const step = 4; // 間引き
-
-      for (let y = 0; y < h; y += step) {
-        for (let x = 0; x < w; x += step) {
-          const idx = (y * w + x) * 4;
-          const r = data[idx];
-          const g = data[idx + 1];
-          const b = data[idx + 2];
-
-          if (isTargetColor(r, g, b)) {
-            totalX += x;
-            totalY += y;
-            count++;
-
-            // マスク強調モード時は検出ピクセルを光らせる
-            if (showMask) {
-              data[idx] = 255;
-              data[idx + 1] = 0;
-              data[idx + 2] = 220; // 鮮やかなネオンマゼンタ
-            }
-          }
-        }
-      }
-
-      if (showMask) {
-        ctx.putImageData(frameData, 0, 0);
-      }
-
-      // 検出ピクセルが十分にあるか（ノイズ除外）
-      if (count >= 8) {
-        return {
-          x: totalX / count,
-          y: totalY / count,
-          count: count
-        };
-      }
-      return null;
-    }
-
-    // --- 高視認性マーカーHUD描画 ---
-    let animPulse = 0;
-    function drawEnhancedMarkerHUD(x, y, velocity, isWarning) {
-      animPulse = (animPulse + 0.08) % (Math.PI * 2);
-      const pulseRadius = 22 + Math.sin(animPulse) * 4;
-      const mainColor = isWarning ? '#ef4444' : '#10b981';
-      const glowColor = isWarning ? 'rgba(239, 68, 68, 0.6)' : 'rgba(16, 185, 129, 0.6)';
-
-      ctx.save();
-
-      // 1. 過去の移動軌跡（トレイル残像）の描画
-      if (trail.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(trail[0].x, trail[0].y);
-        for (let i = 1; i < trail.length; i++) {
-          ctx.lineTo(trail[i].x, trail[i].y);
-        }
-        ctx.strokeStyle = glowColor;
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.setLineDash([4, 4]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // 2. 外側パルスリング（二重発光サークル）
-      ctx.shadowColor = glowColor;
-      ctx.shadowBlur = 12;
-
-      ctx.beginPath();
-      ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI);
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = mainColor;
-      ctx.stroke();
-
-      // 内側実線サークル
-      ctx.beginPath();
-      ctx.arc(x, y, 14, 0, 2 * Math.PI);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
-
-      // 3. 高視認性クロスヘア（十字ターゲット線）
-      const crossSize = 28;
-      const innerGap = 8;
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = mainColor;
-
-      // 上下左右の十字線
-      ctx.beginPath();
-      ctx.moveTo(x, y - crossSize);
-      ctx.lineTo(x, y - innerGap);
-      ctx.moveTo(x, y + innerGap);
-      ctx.lineTo(x, y + crossSize);
-      ctx.moveTo(x - crossSize, y);
-      ctx.lineTo(x - innerGap, y);
-      ctx.moveTo(x + innerGap, y);
-      ctx.lineTo(x + crossSize, y);
-      ctx.stroke();
-
-      // 中心の光るドット
-      ctx.beginPath();
-      ctx.arc(x, y, 3.5, 0, 2 * Math.PI);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-
-      // 4. マーカー横のフローティング情報タグ（速度・ステータス）
-      const tagX = x + 34;
-      const tagY = y - 18;
-      const tagText = isWarning ? `⚠️ 落下! ${Math.round(velocity)} px/s` : `LOCK ${Math.round(velocity)} px/s`;
-      
-      ctx.font = 'bold 13px "JetBrains Mono", sans-serif';
-      const textWidth = ctx.measureText(tagText).width;
-
-      // タグ背景
-      ctx.fillStyle = 'rgba(10, 14, 23, 0.85)';
-      ctx.strokeStyle = mainColor;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(tagX, tagY - 14, textWidth + 16, 26, 6);
-      ctx.fill();
-      ctx.stroke();
-
-      // タグ文字
-      ctx.fillStyle = isWarning ? '#fca5a5' : '#a7f3d0';
-      ctx.shadowBlur = 0;
-      ctx.fillText(tagText, tagX + 8, tagY + 4);
-
-      ctx.restore();
-    }
-
-    // --- メインループ ---
-    function processFrame(timestamp) {
+    // --- メインループ: ビデオをMediaPipeに送信 ---
+    async function processVideoLoop() {
       if (!isCameraRunning) return;
+      if (video.readyState >= 2 && poseDetector) {
+        await poseDetector.send({ image: video });
+      }
+      requestAnimationFrame(processVideoLoop);
+    }
 
-      // 映像の描画（ミラー有効時は水平反転して描画）
+    // --- ポーズ推定結果の受信 & 描画 ---
+    let lastFrameTimestamp = performance.now();
+
+    function onPoseResults(results) {
+      if (!isCameraRunning) return;
+      const now = performance.now();
+      const dt = (now - lastFrameTimestamp) / 1000;
+      lastFrameTimestamp = now;
+
+      // 1. 映像をCanvasに描画（横伸び防止・アスペクト比維持、ミラー対応）
       ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (isMirror) {
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
       }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
       ctx.restore();
 
-      // フレーム画像を取得してマーカー追跡
-      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const marker = trackColor(frame);
+      if (!results.poseLandmarks) {
+        // 全身未検出
+        hudMarkerStatus.className = 'hud-chip searching';
+        hudStatusText.innerText = '全身をカメラに映してください';
+        hudVelocityTag.innerText = '0 px/s';
+        drawGuidanceOverlay();
+        return;
+      }
 
-      if (marker) {
-        targetLocked = true;
-        hudMarkerStatus.className = 'hud-chip locked';
-        hudStatusText.innerText = 'マーカー検出 (LOCKED)';
+      hudMarkerStatus.className = 'hud-chip locked';
+      hudStatusText.innerText = '全身・関節ロック中';
 
-        // 速度計算
-        let velocity = 0;
-        if (lastTimestamp && lastY !== null) {
-          const dt = (timestamp - lastTimestamp) / 1000;
-          if (dt > 0.001) {
-            const dy = marker.y - lastY; // 下方向がプラス
-            velocity = dy / dt;
-          }
+      // 2. ランドマークの座標変換＆スムージング（ブレ除去）
+      const rawLm = results.poseLandmarks;
+      const landmarks = [];
+
+      for (let i = 0; i < rawLm.length; i++) {
+        let x = rawLm[i].x * canvas.width;
+        let y = rawLm[i].y * canvas.height;
+        if (isMirror) {
+          x = canvas.width - x; // ミラー時は反転
         }
 
-        // 軌跡の更新（最新12フレーム保持）
-        trail.push({ x: marker.x, y: marker.y, isWarning });
-        if (trail.length > 12) trail.shift();
+        // EMAスムージング
+        if (!smoothedLandmarks || !smoothedLandmarks[i]) {
+          landmarks[i] = { x, y, visibility: rawLm[i].visibility };
+        } else {
+          landmarks[i] = {
+            x: smoothAlpha * x + (1 - smoothAlpha) * smoothedLandmarks[i].x,
+            y: smoothAlpha * y + (1 - smoothAlpha) * smoothedLandmarks[i].y,
+            visibility: rawLm[i].visibility
+          };
+        }
+      }
+      smoothedLandmarks = landmarks;
 
-        // 状態遷移判定
-        if (velocity > VELOCITY_MOVE_THRESHOLD) {
-          // 下降中（エキセントリック）
-          if (phase !== 'ECCENTRIC') {
-            phase = 'ECCENTRIC';
+      // 3. 追跡基準点（腰中心 または 肩中心）の算出
+      // 11: 左肩, 12: 右肩, 23: 左腰, 24: 右腰
+      let targetX = 0, targetY = 0;
+      if (trackingTarget === 'hip') {
+        targetX = (landmarks[23].x + landmarks[24].x) / 2;
+        targetY = (landmarks[23].y + landmarks[24].y) / 2;
+      } else {
+        targetX = (landmarks[11].x + landmarks[12].x) / 2;
+        targetY = (landmarks[11].y + landmarks[12].y) / 2;
+      }
+
+      // 追跡点のEMAスムージング
+      if (!smoothedTrackPoint) {
+        smoothedTrackPoint = { x: targetX, y: targetY };
+      } else {
+        smoothedTrackPoint.x = smoothAlpha * targetX + (1 - smoothAlpha) * smoothedTrackPoint.x;
+        smoothedTrackPoint.y = smoothAlpha * targetY + (1 - smoothAlpha) * smoothedTrackPoint.y;
+      }
+
+      // 4. 速度の計算＆平滑化
+      let rawVelocity = 0;
+      if (dt > 0.005) {
+        const dy = targetY - (smoothedTrackPoint.y); // 下向きが正
+        rawVelocity = (dy / dt) * 0.4;
+      }
+      smoothedVelocity = 0.25 * rawVelocity + 0.75 * smoothedVelocity;
+      const absVelocity = Math.round(Math.abs(smoothedVelocity));
+
+      // 5. 厳密なレップ数判定 & ネガティブ速度チェック
+      updateMotionRepLogic(smoothedTrackPoint.y, smoothedVelocity, now);
+
+      // 6. 体幹・一直線マーカー & 関節丸マーカーの描画
+      drawBodyAlignmentAndJoints(landmarks, smoothedTrackPoint, absVelocity);
+    }
+
+    // --- 厳密なレップ数判定ロジック ---
+    function updateMotionRepLogic(currentY, velocity, timestamp) {
+      // 画面高さに対する最小可動域（約 6%）
+      minDisplacement = Math.max(30, canvas.height * 0.06);
+
+      // 初期基準位置の設定
+      if (topBaselineY === null) {
+        topBaselineY = currentY;
+        bottomY = currentY;
+      }
+
+      // 最上点（トップ）の動的補正
+      if (currentY < topBaselineY && Math.abs(velocity) < 15) {
+        topBaselineY = 0.1 * currentY + 0.9 * topBaselineY;
+      }
+
+      const displacement = currentY - topBaselineY; // 下降変位量
+
+      // ステートマシン判定
+      switch (motionState) {
+        case 'TOP':
+          // トップ位置で静止または下降開始待ち
+          phaseDisplay.innerText = '準備完了 (TOP)';
+          phaseDisplay.className = 'metric-value';
+          fsPhase.innerText = 'TOP (静止)';
+          fsPhase.className = 'metric-value';
+          isWarning = false;
+
+          // 明確に下降（速度＆一定変位）でエキセントリック開始
+          if (velocity > VELOCITY_MOVE_THRESHOLD && displacement > minDisplacement * 0.3) {
+            motionState = 'ECCENTRIC';
             eccentricStartTime = timestamp;
+            bottomY = currentY;
           }
+          break;
+
+        case 'ECCENTRIC':
+          // 下降中（エキセントリック）
           const tut = ((timestamp - eccentricStartTime) / 1000).toFixed(1);
           tutDisplay.innerText = `${tut}s`;
           fsTut.innerText = `${tut}s`;
 
-          // 落下チェック
+          if (currentY > bottomY) bottomY = currentY;
+
+          // 落下警告チェック
           if (velocity > MAX_ALLOWED_ECC_VELOCITY) {
             isWarning = true;
             phaseDisplay.innerText = '⚠️ 落下（負荷抜け）';
             phaseDisplay.className = 'metric-value status-warn';
-            fsPhase.innerText = '⚠️ 落下';
+            fsPhase.innerText = '⚠️ 落下!';
             fsPhase.className = 'metric-value status-warn';
             hudMarkerStatus.className = 'hud-chip warn';
-            playBeep(220, 'square', 0.06); // 警告音
+            playBeep(220, 'square', 0.05);
           } else {
             isWarning = false;
             phaseDisplay.innerText = 'エキセントリック ⬇️';
@@ -1027,59 +978,170 @@
             fsPhase.innerText = '下降 (ECC)';
             fsPhase.className = 'metric-value status-ok';
           }
-        } else if (velocity < -VELOCITY_MOVE_THRESHOLD) {
-          // 上昇中（コンセントリック）
-          if (phase === 'ECCENTRIC') {
-            repCount++;
-            repDisplay.innerText = repCount;
-            fsRep.innerText = repCount;
-            playBeep(880, 'sine', 0.14); // 挙上成功音
+
+          // 最下点で減速し、上昇に転じたか判定
+          if (velocity < -VELOCITY_MOVE_THRESHOLD && (bottomY - topBaselineY) >= minDisplacement) {
+            motionState = 'CONCENTRIC';
+            isWarning = false;
           }
-          phase = 'CONCENTRIC';
-          isWarning = false;
+          break;
+
+        case 'CONCENTRIC':
+          // 上昇中（コンセントリック）
           phaseDisplay.innerText = '挙上中 ⬆️';
           phaseDisplay.className = 'metric-value status-concentric';
           fsPhase.innerText = '挙上 (CON)';
           fsPhase.className = 'metric-value status-concentric';
-        } else {
-          // 静止
-          if (phase === 'ECCENTRIC') {
-            const tut = ((timestamp - eccentricStartTime) / 1000).toFixed(1);
-            tutDisplay.innerText = `${tut}s`;
-            fsTut.innerText = `${tut}s`;
+          isWarning = false;
+
+          // 開始トップ位置の近くまで復帰したか？ (変位が最小ストロークの25%以下)
+          if (displacement < minDisplacement * 0.25) {
+            // デバウンス（前回のレップから最低0.7秒以上経過）
+            if (timestamp - lastRepTime > 700) {
+              repCount++;
+              repDisplay.innerText = repCount;
+              fsRep.innerText = repCount;
+              lastRepTime = timestamp;
+              playBeep(880, 'sine', 0.15); // チャイム音
+            }
+            motionState = 'TOP';
+            topBaselineY = currentY;
           }
-        }
-
-        const absVel = Math.round(Math.abs(velocity));
-        velocityDisplay.innerText = absVel;
-        fsVelocity.innerText = absVel;
-        hudVelocityTag.innerText = `${absVel} px/s`;
-
-        // 高視認性マーカーHUDの描画
-        drawEnhancedMarkerHUD(marker.x, marker.y, absVel, isWarning);
-
-        lastY = marker.y;
-      } else {
-        // マーカー見失い時
-        targetLocked = false;
-        trail = []; // 軌跡クリア
-        hudMarkerStatus.className = 'hud-chip searching';
-        hudStatusText.innerText = 'マーカー探索中...';
-        hudVelocityTag.innerText = '0 px/s';
-
-        // 画面上部に視認補助ガイドを描画
-        ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-        ctx.fillRect(0, 0, canvas.width, 36);
-        ctx.font = '600 14px "Inter", sans-serif';
-        ctx.fillStyle = '#fde047';
-        ctx.textAlign = 'center';
-        ctx.fillText(`🎯 ${selectedColor === 'red' ? '赤色' : selectedColor}マーカーをカメラ内に映してください`, canvas.width / 2, 23);
-        ctx.restore();
+          break;
       }
 
-      lastTimestamp = timestamp;
-      requestAnimationFrame(processFrame);
+      const absV = Math.round(Math.abs(velocity));
+      velocityDisplay.innerText = absV;
+      fsVelocity.innerText = absV;
+      hudVelocityTag.innerText = `${absV} px/s`;
+    }
+
+    // --- 体一直線マーカー ＆ 関節丸マーカーの描画 ---
+    function drawBodyAlignmentAndJoints(lm, targetPt, velocity) {
+      ctx.save();
+
+      // 主要関節インデックス
+      // 0: 鼻, 11: 左肩, 12: 右肩, 13: 左肘, 14: 右肘, 15: 左手首, 16: 右手首
+      // 23: 左腰, 24: 右腰, 25: 左膝, 26: 右膝, 27: 左足首, 28: 右足首
+      const head = lm[0];
+      const midShoulder = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 };
+      const midHip = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 };
+      const midAnkle = { x: (lm[27].x + lm[28].x) / 2, y: (lm[27].y + lm[28].y) / 2 };
+
+      // 1. 体幹の一直線マーカー（レーザー垂直アライメント軸）
+      if (showCenterGuide) {
+        // 体の中心軸（頭〜肩中心〜腰中心〜足元）
+        ctx.beginPath();
+        // まっすぐ上下に貫くレーザーライン
+        ctx.moveTo(midShoulder.x, Math.max(0, head.y - 40));
+        ctx.lineTo(midShoulder.x, Math.min(canvas.height, midAnkle.y + 40));
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = isWarning ? 'rgba(239, 68, 68, 0.85)' : 'rgba(6, 182, 212, 0.85)'; // シアンまたはレッド
+        ctx.shadowColor = isWarning ? '#ef4444' : '#06b6d4';
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+
+        // センターラインの目盛・水平クロスガイド（肩と腰の傾き水平線）
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        // 肩ライン
+        ctx.beginPath();
+        ctx.moveTo(lm[11].x, lm[11].y);
+        ctx.lineTo(lm[12].x, lm[12].y);
+        ctx.stroke();
+        // 腰ライン
+        ctx.beginPath();
+        ctx.moveTo(lm[23].x, lm[23].y);
+        ctx.lineTo(lm[24].x, lm[24].y);
+        ctx.stroke();
+      }
+
+      // 2. 骨格ボーンライン（腕・胴体・脚）
+      const bones = [
+        [11, 13], [13, 15], // 左腕
+        [12, 14], [14, 16], // 右腕
+        [11, 23], [12, 24], // 胴体サイド
+        [23, 25], [25, 27], // 左脚
+        [24, 26], [26, 28]  // 右脚
+      ];
+
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)'; // ネオングリーン
+      ctx.shadowColor = '#10b981';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      for (const [s, e] of bones) {
+        if (lm[s] && lm[e] && lm[s].visibility > 0.3 && lm[e].visibility > 0.3) {
+          ctx.moveTo(lm[s].x, lm[s].y);
+          ctx.lineTo(lm[e].x, lm[e].y);
+        }
+      }
+      ctx.stroke();
+
+      // 3. 各関節の「丸いマーカー」
+      const jointIndices = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+      for (const idx of jointIndices) {
+        const p = lm[idx];
+        if (!p || p.visibility < 0.3) continue;
+
+        // 外側の丸マーカー
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, 2 * Math.PI);
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#06b6d4';
+        ctx.shadowBlur = 12;
+        ctx.fill();
+
+        // 内側コア
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = isWarning ? '#ef4444' : '#0284c7';
+        ctx.fill();
+      }
+
+      // 4. 現在の追跡基準点（腰 or 肩）にフォーカスターゲットHUD
+      const fx = targetPt.x;
+      const fy = targetPt.y;
+      const focusColor = isWarning ? '#ef4444' : '#3b82f6';
+
+      ctx.beginPath();
+      ctx.arc(fx, fy, 16, 0, 2 * Math.PI);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = focusColor;
+      ctx.shadowColor = focusColor;
+      ctx.shadowBlur = 14;
+      ctx.stroke();
+
+      // 追跡情報タグ
+      const tagText = isWarning ? `⚠️ 落下! ${velocity} px/s` : `TRACK ${velocity} px/s`;
+      ctx.font = 'bold 12px "JetBrains Mono", sans-serif';
+      const tw = ctx.measureText(tagText).width;
+
+      ctx.fillStyle = 'rgba(10, 14, 23, 0.85)';
+      ctx.strokeStyle = focusColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(fx + 22, fy - 12, tw + 14, 24, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isWarning ? '#fca5a5' : '#93c5fd';
+      ctx.shadowBlur = 0;
+      ctx.fillText(tagText, fx + 28, fy + 4);
+
+      ctx.restore();
+    }
+
+    // 未検出時のガイダンス
+    function drawGuidanceOverlay() {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(0, 0, canvas.width, 36);
+      ctx.font = '600 14px "Inter", sans-serif';
+      ctx.fillStyle = '#fbbf24';
+      ctx.textAlign = 'center';
+      ctx.fillText('🧍 頭から足元までが映るようカメラの位置を調整してください', canvas.width / 2, 23);
+      ctx.restore();
     }
   </script>
 </body>
