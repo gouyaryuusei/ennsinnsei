@@ -2,186 +2,1003 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Eccentric Velocity Tracker (Prototype)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>EBT: ネガティブ速度・負荷抜けチェッカー</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #121212;
-      color: #ffffff;
+    :root {
+      --bg-base: #0a0e17;
+      --bg-surface: #121826;
+      --bg-card: rgba(26, 35, 54, 0.75);
+      --border-color: rgba(255, 255, 255, 0.1);
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-warn: #ef4444;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --container-max-w: 480px;
+    }
+
+    * {
+      box-sizing: border-box;
       margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 16px;
+      padding: 12px 16px 36px;
+      transition: background 0.3s;
     }
-    h1 { font-size: 1.2rem; margin-bottom: 8px; }
-    .container { position: relative; width: 100%; max-width: 480px; }
-    video, canvas {
+
+    header {
       width: 100%;
-      border-radius: 8px;
-      display: block;
+      max-width: var(--container-max-w);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      transition: max-width 0.3s ease;
     }
-    video { display: none; }
-    .dashboard {
-      margin-top: 12px;
-      width: 100%;
-      max-width: 480px;
-      background: #1e1e1e;
-      padding: 12px;
-      border-radius: 8px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+
+    .title-badge {
+      display: flex;
+      align-items: center;
       gap: 8px;
     }
-    .metric {
-      background: #2a2a2a;
-      padding: 8px;
-      border-radius: 4px;
-      text-align: center;
+
+    h1 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #60a5fa 0%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
     }
-    .metric-label { font-size: 0.75rem; color: #888; }
-    .metric-value { font-size: 1.4rem; font-weight: bold; margin-top: 4px; }
-    .status-ok { color: #4ade80; }
-    .status-warn { color: #f87171; }
-    button {
-      margin-top: 12px;
-      padding: 10px 24px;
-      font-size: 1rem;
-      font-weight: bold;
+
+    .version-tag {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      background: rgba(59, 130, 246, 0.2);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 999px;
+      color: #93c5fd;
+    }
+
+    /* メインコンテナ */
+    .app-layout {
+      width: 100%;
+      max-width: var(--container-max-w);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* コントロールバー（画面サイズ、カメラ切替） */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 8px 12px;
+    }
+
+    .tool-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tool-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-right: 2px;
+    }
+
+    .btn-tool {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-main);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-tool:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .btn-tool.active {
       background: #2563eb;
+      border-color: #3b82f6;
+      color: white;
+      box-shadow: 0 0 12px rgba(37, 99, 235, 0.5);
+    }
+
+    /* カメラビューコンテナ */
+    .camera-container {
+      position: relative;
+      width: 100%;
+      background: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-color);
+      aspect-ratio: 4 / 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video {
+      display: none;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    /* カメラ未起動時のプレースホルダ */
+    .camera-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      padding: 24px;
+      text-align: center;
+      z-index: 5;
+    }
+
+    .camera-placeholder.hidden {
+      display: none;
+    }
+
+    .placeholder-icon {
+      font-size: 2.8rem;
+      margin-bottom: 12px;
+      opacity: 0.85;
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    .placeholder-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .placeholder-desc {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      max-width: 320px;
+      line-height: 1.4;
+      margin-bottom: 16px;
+    }
+
+    .btn-primary {
+      padding: 12px 28px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
       color: white;
       border: none;
-      border-radius: 6px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-primary:active {
+      transform: translateY(1px);
+    }
+
+    /* 画面内オーバーレイ (HUD) */
+    .hud-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .hud-chip {
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hud-chip.searching {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.3);
+    }
+
+    .hud-chip.locked {
+      color: #34d399;
+      border-color: rgba(52, 211, 153, 0.4);
+    }
+
+    .hud-chip.warn {
+      color: #f87171;
+      border-color: rgba(248, 113, 113, 0.5);
+      background: rgba(185, 28, 28, 0.6);
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    /* フルスクリーン時などのクイックHUD */
+    .fullscreen-stats {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      right: 12px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 10px 14px;
+      display: none;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      text-align: center;
+      z-index: 4;
+    }
+
+    .camera-container.is-fullscreen .fullscreen-stats {
+      display: grid;
+    }
+
+    /* ダッシュボード */
+    .dashboard {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 14px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .metric-card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 10px 12px;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .metric-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .metric-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: 4px;
+      letter-spacing: -0.03em;
+    }
+
+    .status-ok { color: var(--accent-green); }
+    .status-warn { color: var(--accent-warn); text-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+    .status-concentric { color: var(--accent-blue); }
+
+    /* 設定・調整パネル */
+    .settings-panel {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .settings-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #93c5fd;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      gap: 12px;
+    }
+
+    .color-presets {
+      display: flex;
+      gap: 6px;
+    }
+
+    .color-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.15s;
+    }
+
+    .color-btn:hover { transform: scale(1.1); }
+    .color-btn.active {
+      border-color: #fff;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .color-btn[data-color="red"] { background: #ef4444; color: #ef4444; }
+    .color-btn[data-color="orange"] { background: #f97316; color: #f97316; }
+    .color-btn[data-color="green"] { background: #10b981; color: #10b981; }
+    .color-btn[data-color="blue"] { background: #3b82f6; color: #3b82f6; }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent-blue);
       cursor: pointer;
     }
-    button:active { background: #1d4ed8; }
+
+    /* レスポンシブ */
+    @media (max-width: 480px) {
+      body { padding: 8px 10px 24px; }
+      .dashboard { grid-template-columns: 1fr 1fr; }
+      .metric-value { font-size: 1.3rem; }
+    }
   </style>
 </head>
 <body>
 
-  <h1>EBT: ネガティブ速度・負荷抜けチェッカー</h1>
+  <header>
+    <div class="title-badge">
+      <h1>EBT Velocity Tracker</h1>
+      <span class="version-tag">Pro v2.0</span>
+    </div>
+    <div id="activeCameraBadge" style="font-size: 0.72rem; color: var(--text-muted);">
+      カメラ: 未起動
+    </div>
+  </header>
 
-  <div class="container">
-    <video id="webcam" playsinline autoplay></video>
-    <canvas id="output"></canvas>
+  <div class="app-layout" id="appLayout">
+    
+    <!-- ツールバー：画面サイズ＆カメラ切り替え -->
+    <div class="toolbar">
+      <!-- 画面サイズ切り替え -->
+      <div class="tool-group">
+        <span class="tool-label">表示:</span>
+        <button id="sizeStdBtn" class="btn-tool active" title="標準サイズ (480px)">標準</button>
+        <button id="sizeLgBtn" class="btn-tool" title="大画面 (850px)">大画面</button>
+        <button id="sizeFullWidthBtn" class="btn-tool" title="画面幅いっぱい">最大</button>
+        <button id="fullscreenBtn" class="btn-tool" title="全画面表示">⛶ 全画面</button>
+      </div>
+
+      <!-- カメラ設定 -->
+      <div class="tool-group">
+        <button id="switchCamBtn" class="btn-tool" title="フロント / 背面カメラ切り替え">
+          <span id="camIcon">🔄</span> <span id="camText">インカメ切替</span>
+        </button>
+        <button id="mirrorToggleBtn" class="btn-tool active" title="左右反転（ミラー表示）">
+          🪞 ミラー
+        </button>
+      </div>
+    </div>
+
+    <!-- カメラ＆描画ビュー -->
+    <div class="camera-container" id="cameraBox">
+      <video id="webcam" playsinline autoplay muted></video>
+      <canvas id="output"></canvas>
+
+      <!-- HUD（状態バッジ） -->
+      <div class="hud-overlay">
+        <div id="hudMarkerStatus" class="hud-chip searching">
+          <span class="pulse-dot"></span>
+          <span id="hudStatusText">マーカー探索中</span>
+        </div>
+        <div id="hudVelocityTag" class="hud-chip" style="font-family: 'JetBrains Mono', monospace;">
+          0 px/s
+        </div>
+      </div>
+
+      <!-- 全画面時のフローティングメーター -->
+      <div class="fullscreen-stats">
+        <div>
+          <div class="metric-label">フェーズ</div>
+          <div id="fsPhase" style="font-weight: 700; font-size: 0.95rem;">-</div>
+        </div>
+        <div>
+          <div class="metric-label">速度</div>
+          <div id="fsVelocity" style="font-family: 'JetBrains Mono'; font-weight: 700; font-size: 0.95rem;">0</div>
+        </div>
+        <div>
+          <div class="metric-label">TUT</div>
+          <div id="fsTut" style="font-family: 'JetBrains Mono'; font-weight: 700; font-size: 0.95rem;">0.0s</div>
+        </div>
+        <div>
+          <div class="metric-label">レップ</div>
+          <div id="fsRep" style="font-family: 'JetBrains Mono'; font-weight: 700; font-size: 0.95rem; color: #60a5fa;">0</div>
+        </div>
+      </div>
+
+      <!-- 初期プレースホルダ -->
+      <div class="camera-placeholder" id="placeholder">
+        <div class="placeholder-icon">🎯</div>
+        <div class="placeholder-title">高視認性 EBT トラッカー</div>
+        <div class="placeholder-desc">
+          赤色マーカー（またはバーベルの目印）を追跡し、ネガティブ動作の速度と負荷抜けをリアルタイム検知します。
+        </div>
+        <button id="startBtn" class="btn-primary">
+          <span>📷</span> カメラ起動 / 計測開始
+        </button>
+      </div>
+    </div>
+
+    <!-- 通常ダッシュボード -->
+    <div class="dashboard">
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">現在のフェーズ</span>
+          <span>⚡</span>
+        </div>
+        <div id="phaseDisplay" class="metric-value">-</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">降下速度</span>
+          <span style="font-size: 0.7rem; color: var(--text-muted);">px/s</span>
+        </div>
+        <div id="velocityDisplay" class="metric-value">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">ネガティブ時間 (TUT)</span>
+          <span>⏱️</span>
+        </div>
+        <div id="tutDisplay" class="metric-value">0.0s</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-header">
+          <span class="metric-label">総レップ数</span>
+          <span>🏋️</span>
+        </div>
+        <div id="repDisplay" class="metric-value" style="color: #60a5fa;">0</div>
+      </div>
+    </div>
+
+    <!-- 視認性・マーカー調整パネル -->
+    <div class="settings-panel">
+      <div class="settings-title">
+        <span>⚙️</span> マーカー視認性・検出設定
+      </div>
+
+      <!-- 検出領域ハイライトトグル -->
+      <div class="setting-row">
+        <span>🔍 認識ピクセルを強調（視認デバッグ）</span>
+        <button id="toggleMaskBtn" class="btn-tool">OFF</button>
+      </div>
+
+      <!-- マーカーカラー選択 -->
+      <div class="setting-row">
+        <span>追跡マーカーの色:</span>
+        <div class="color-presets">
+          <button class="color-btn active" data-color="red" title="赤色（推奨）"></button>
+          <button class="color-btn" data-color="orange" title="オレンジ"></button>
+          <button class="color-btn" data-color="green" title="蛍光グリーン"></button>
+          <button class="color-btn" data-color="blue" title="ブルー"></button>
+        </div>
+      </div>
+
+      <!-- 感度調整 -->
+      <div class="setting-row">
+        <span>検出感度:</span>
+        <input type="range" id="sensitivityRange" min="20" max="80" value="45">
+        <span id="sensitivityVal" style="font-family: 'JetBrains Mono'; font-size: 0.75rem; width: 28px;">45</span>
+      </div>
+
+      <!-- リセットボタン -->
+      <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+        <button id="resetRepBtn" class="btn-tool" style="color: #f87171;">レップ数リセット</button>
+      </div>
+    </div>
+
   </div>
-
-  <div class="dashboard">
-    <div class="metric">
-      <div class="metric-label">現在のフェーズ</div>
-      <div id="phaseDisplay" class="metric-value">-</div>
-    </div>
-    <div class="metric">
-      <div class="metric-label">降下速度 (px/s)</div>
-      <div id="velocityDisplay" class="metric-value">0</div>
-    </div>
-    <div class="metric">
-      <div class="metric-label">ネガティブ時間 (TUT)</div>
-      <div id="tutDisplay" class="metric-value">0.0s</div>
-    </div>
-    <div class="metric">
-      <div class="metric-label">総レップ数</div>
-      <div id="repDisplay" class="metric-value">0</div>
-    </div>
-  </div>
-
-  <button id="startBtn">カメラ起動 / トラッキング開始</button>
 
   <script>
+    // --- DOM要素取得 ---
+    const appLayout = document.getElementById('appLayout');
+    const cameraBox = document.getElementById('cameraBox');
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('output');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const placeholder = document.getElementById('placeholder');
     const startBtn = document.getElementById('startBtn');
+    const activeCameraBadge = document.getElementById('activeCameraBadge');
 
-    // UI要素
+    // サイズボタン
+    const sizeStdBtn = document.getElementById('sizeStdBtn');
+    const sizeLgBtn = document.getElementById('sizeLgBtn');
+    const sizeFullWidthBtn = document.getElementById('sizeFullWidthBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    // カメラ・ミラーボタン
+    const switchCamBtn = document.getElementById('switchCamBtn');
+    const mirrorToggleBtn = document.getElementById('mirrorToggleBtn');
+    const camText = document.getElementById('camText');
+
+    // メーター要素
     const phaseDisplay = document.getElementById('phaseDisplay');
     const velocityDisplay = document.getElementById('velocityDisplay');
     const tutDisplay = document.getElementById('tutDisplay');
     const repDisplay = document.getElementById('repDisplay');
+    const fsPhase = document.getElementById('fsPhase');
+    const fsVelocity = document.getElementById('fsVelocity');
+    const fsTut = document.getElementById('fsTut');
+    const fsRep = document.getElementById('fsRep');
+    const hudMarkerStatus = document.getElementById('hudMarkerStatus');
+    const hudStatusText = document.getElementById('hudStatusText');
+    const hudVelocityTag = document.getElementById('hudVelocityTag');
 
-    // Web Audio API（警告音）
-    let audioCtx = null;
-    function playBeep(freq = 440, type = 'sine', duration = 0.1) {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-      osc.stop(audioCtx.currentTime + duration);
-    }
+    // 設定要素
+    const toggleMaskBtn = document.getElementById('toggleMaskBtn');
+    const sensitivityRange = document.getElementById('sensitivityRange');
+    const sensitivityVal = document.getElementById('sensitivityVal');
+    const resetRepBtn = document.getElementById('resetRepBtn');
+    const colorBtns = document.querySelectorAll('.color-btn');
 
-    // トラッキング・運動状態
+    // --- カメラ・ストリーム状態 ---
+    let currentFacingMode = 'user'; // デフォルトは自撮り/インカメ（使いやすさ重視）
+    let isMirror = true;           // インカメ時はデフォルトでミラー有効
+    let currentStream = null;
+    let isCameraRunning = false;
+
+    // --- マーカー・検出設定 ---
+    let selectedColor = 'red';
+    let sensitivity = 45;
+    let showMask = false;
+    let trail = []; // マーカーの過去位置軌跡 [{x, y, isWarning}]
+
+    // --- 運動トラッキング状態 ---
     let lastY = null;
     let lastTimestamp = null;
     let phase = 'STILL'; // STILL, ECCENTRIC, CONCENTRIC
     let eccentricStartTime = 0;
     let repCount = 0;
     let isWarning = false;
+    let targetLocked = false;
 
-    // 閾値設定（調整可能）
-    const VELOCITY_MOVE_THRESHOLD = 30; // 運動開始判定の最小速度 (px/s)
-    const MAX_ALLOWED_ECC_VELOCITY = 260; // これを超えると「脱力・落下」と判定 (px/s)
+    // 閾値設定
+    const VELOCITY_MOVE_THRESHOLD = 30; // px/s
+    const MAX_ALLOWED_ECC_VELOCITY = 260; // px/s 超えると落下警告
 
-    startBtn.addEventListener('click', async () => {
-      startBtn.style.display = 'none';
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 480, height: 640, facingMode: 'environment' },
+    // Web Audio API
+    let audioCtx = null;
+    function playBeep(freq = 440, type = 'sine', duration = 0.1) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {
+        console.warn("Audio error:", e);
+      }
+    }
+
+    // --- カメラ制御 ---
+    async function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+
+      const constraints = {
+        video: {
+          facingMode: currentFacingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
-      });
-      video.srcObject = stream;
-      video.onloadedmetadata = () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        requestAnimationFrame(processFrame);
       };
+
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = currentStream;
+        await video.play();
+
+        video.onloadedmetadata = () => {
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          cameraBox.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
+        };
+
+        isCameraRunning = true;
+        placeholder.classList.add('hidden');
+        updateCameraUI();
+        requestAnimationFrame(processFrame);
+      } catch (err) {
+        console.error("Camera access error:", err);
+        alert("カメラの起動に失敗しました: " + err.message);
+      }
+    }
+
+    function updateCameraUI() {
+      const isFront = (currentFacingMode === 'user');
+      camText.innerText = isFront ? "背面カメラへ" : "インカメへ";
+      activeCameraBadge.innerText = `カメラ: ${isFront ? "インカメラ (前面)" : "背面カメラ"}`;
+      mirrorToggleBtn.classList.toggle('active', isMirror);
+    }
+
+    // カメラ切り替え
+    switchCamBtn.addEventListener('click', async () => {
+      currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+      // インカメになったときはミラーON、背面はミラーOFFを自動推奨
+      isMirror = (currentFacingMode === 'user');
+      updateCameraUI();
+      if (isCameraRunning) {
+        await startCamera();
+      }
     });
 
-    // 簡易的な色抽出（赤〜オレンジ系のマーカーを追跡）
-    function trackColor(imageData) {
-      const data = imageData.data;
-      let totalX = 0, totalY = 0, count = 0;
-      const step = 4; // 高速化のため4ピクセルごとに間引き
+    // ミラートグル
+    mirrorToggleBtn.addEventListener('click', () => {
+      isMirror = !isMirror;
+      mirrorToggleBtn.classList.toggle('active', isMirror);
+    });
 
-      for (let y = 0; y < canvas.height; y += step) {
-        for (let x = 0; x < canvas.width; x += step) {
-          const idx = (y * canvas.width + x) * 4;
+    // 開始ボタン
+    startBtn.addEventListener('click', () => {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      startCamera();
+    });
+
+    // --- 画面サイズ切り替え機能 ---
+    function setSize(mode) {
+      sizeStdBtn.classList.remove('active');
+      sizeLgBtn.classList.remove('active');
+      sizeFullWidthBtn.classList.remove('active');
+
+      if (mode === 'std') {
+        document.documentElement.style.setProperty('--container-max-w', '480px');
+        sizeStdBtn.classList.add('active');
+      } else if (mode === 'lg') {
+        document.documentElement.style.setProperty('--container-max-w', '850px');
+        sizeLgBtn.classList.add('active');
+      } else if (mode === 'full') {
+        document.documentElement.style.setProperty('--container-max-w', '100%');
+        sizeFullWidthBtn.classList.add('active');
+      }
+    }
+
+    sizeStdBtn.addEventListener('click', () => setSize('std'));
+    sizeLgBtn.addEventListener('click', () => setSize('lg'));
+    sizeFullWidthBtn.addEventListener('click', () => setSize('full'));
+
+    // フルスクリーン機能
+    fullscreenBtn.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        cameraBox.requestFullscreen().catch(err => {
+          alert(`全画面表示できませんでした: ${err.message}`);
+        });
+      } else {
+        document.exitFullscreen();
+      }
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement) {
+        cameraBox.classList.add('is-fullscreen');
+        fullscreenBtn.classList.add('active');
+      } else {
+        cameraBox.classList.remove('is-fullscreen');
+        fullscreenBtn.classList.remove('active');
+      }
+    });
+
+    // --- マーカー調整 & 設定イベント ---
+    toggleMaskBtn.addEventListener('click', () => {
+      showMask = !showMask;
+      toggleMaskBtn.classList.toggle('active', showMask);
+      toggleMaskBtn.innerText = showMask ? "ON" : "OFF";
+    });
+
+    sensitivityRange.addEventListener('input', (e) => {
+      sensitivity = parseInt(e.target.value);
+      sensitivityVal.innerText = sensitivity;
+    });
+
+    colorBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        colorBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedColor = btn.getAttribute('data-color');
+      });
+    });
+
+    resetRepBtn.addEventListener('click', () => {
+      repCount = 0;
+      repDisplay.innerText = 0;
+      fsRep.innerText = 0;
+      tutDisplay.innerText = "0.0s";
+      fsTut.innerText = "0.0s";
+    });
+
+    // --- 色判定ロジック ---
+    function isTargetColor(r, g, b) {
+      const tol = sensitivity; // 20 ~ 80
+      if (selectedColor === 'red') {
+        // 赤判定: Rが十分高く、G/Bよりtol以上大きい
+        return (r > 130 && (r - g) > tol && (r - b) > tol);
+      } else if (selectedColor === 'orange') {
+        // オレンジ判定: R高、G中、B低
+        return (r > 160 && g > 70 && g < 180 && (r - g) > 25 && (g - b) > tol);
+      } else if (selectedColor === 'green') {
+        // 蛍光緑判定: G高、R/Bより大きい
+        return (g > 130 && (g - r) > tol && (g - b) > tol);
+      } else if (selectedColor === 'blue') {
+        // 青判定: B高、R/Gより大きい
+        return (b > 130 && (b - r) > tol && (b - g) > tol);
+      }
+      return false;
+    }
+
+    // --- 画像解析 & マーカー抽出 ---
+    function trackColor(frameData) {
+      const data = frameData.data;
+      const w = canvas.width;
+      const h = canvas.height;
+      let totalX = 0, totalY = 0, count = 0;
+      const step = 4; // 間引き
+
+      for (let y = 0; y < h; y += step) {
+        for (let x = 0; x < w; x += step) {
+          const idx = (y * w + x) * 4;
           const r = data[idx];
           const g = data[idx + 1];
           const b = data[idx + 2];
 
-          // 鮮やかな赤色判定 (Rが高く、G/Bとの差が大きい領域)
-          if (r > 150 && g < 80 && b < 80) {
+          if (isTargetColor(r, g, b)) {
             totalX += x;
             totalY += y;
             count++;
+
+            // マスク強調モード時は検出ピクセルを光らせる
+            if (showMask) {
+              data[idx] = 255;
+              data[idx + 1] = 0;
+              data[idx + 2] = 220; // 鮮やかなネオンマゼンタ
+            }
           }
         }
       }
-      return count > 15 ? { x: totalX / count, y: totalY / count } : null;
+
+      if (showMask) {
+        ctx.putImageData(frameData, 0, 0);
+      }
+
+      // 検出ピクセルが十分にあるか（ノイズ除外）
+      if (count >= 8) {
+        return {
+          x: totalX / count,
+          y: totalY / count,
+          count: count
+        };
+      }
+      return null;
     }
 
+    // --- 高視認性マーカーHUD描画 ---
+    let animPulse = 0;
+    function drawEnhancedMarkerHUD(x, y, velocity, isWarning) {
+      animPulse = (animPulse + 0.08) % (Math.PI * 2);
+      const pulseRadius = 22 + Math.sin(animPulse) * 4;
+      const mainColor = isWarning ? '#ef4444' : '#10b981';
+      const glowColor = isWarning ? 'rgba(239, 68, 68, 0.6)' : 'rgba(16, 185, 129, 0.6)';
+
+      ctx.save();
+
+      // 1. 過去の移動軌跡（トレイル残像）の描画
+      if (trail.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(trail[0].x, trail[0].y);
+        for (let i = 1; i < trail.length; i++) {
+          ctx.lineTo(trail[i].x, trail[i].y);
+        }
+        ctx.strokeStyle = glowColor;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.setLineDash([4, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // 2. 外側パルスリング（二重発光サークル）
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = 12;
+
+      ctx.beginPath();
+      ctx.arc(x, y, pulseRadius, 0, 2 * Math.PI);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = mainColor;
+      ctx.stroke();
+
+      // 内側実線サークル
+      ctx.beginPath();
+      ctx.arc(x, y, 14, 0, 2 * Math.PI);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+
+      // 3. 高視認性クロスヘア（十字ターゲット線）
+      const crossSize = 28;
+      const innerGap = 8;
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = mainColor;
+
+      // 上下左右の十字線
+      ctx.beginPath();
+      ctx.moveTo(x, y - crossSize);
+      ctx.lineTo(x, y - innerGap);
+      ctx.moveTo(x, y + innerGap);
+      ctx.lineTo(x, y + crossSize);
+      ctx.moveTo(x - crossSize, y);
+      ctx.lineTo(x - innerGap, y);
+      ctx.moveTo(x + innerGap, y);
+      ctx.lineTo(x + crossSize, y);
+      ctx.stroke();
+
+      // 中心の光るドット
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, 2 * Math.PI);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+
+      // 4. マーカー横のフローティング情報タグ（速度・ステータス）
+      const tagX = x + 34;
+      const tagY = y - 18;
+      const tagText = isWarning ? `⚠️ 落下! ${Math.round(velocity)} px/s` : `LOCK ${Math.round(velocity)} px/s`;
+      
+      ctx.font = 'bold 13px "JetBrains Mono", sans-serif';
+      const textWidth = ctx.measureText(tagText).width;
+
+      // タグ背景
+      ctx.fillStyle = 'rgba(10, 14, 23, 0.85)';
+      ctx.strokeStyle = mainColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(tagX, tagY - 14, textWidth + 16, 26, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      // タグ文字
+      ctx.fillStyle = isWarning ? '#fca5a5' : '#a7f3d0';
+      ctx.shadowBlur = 0;
+      ctx.fillText(tagText, tagX + 8, tagY + 4);
+
+      ctx.restore();
+    }
+
+    // --- メインループ ---
     function processFrame(timestamp) {
+      if (!isCameraRunning) return;
+
+      // 映像の描画（ミラー有効時は水平反転して描画）
+      ctx.save();
+      if (isMirror) {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      // フレーム画像を取得してマーカー追跡
       const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const marker = trackColor(frame);
 
-      if (marker && lastTimestamp) {
-        const dt = (timestamp - lastTimestamp) / 1000; // 秒
-        const dy = marker.y - (lastY !== null ? lastY : marker.y); // 下向きがプラス
-        const velocity = dy / dt; // 符号付き速度 (px/s)
+      if (marker) {
+        targetLocked = true;
+        hudMarkerStatus.className = 'hud-chip locked';
+        hudStatusText.innerText = 'マーカー検出 (LOCKED)';
 
-        // マーカー位置を描画
-        ctx.beginPath();
-        ctx.arc(marker.x, marker.y, 12, 0, 2 * Math.PI);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = isWarning ? '#ef4444' : '#22c55e';
-        ctx.stroke();
+        // 速度計算
+        let velocity = 0;
+        if (lastTimestamp && lastY !== null) {
+          const dt = (timestamp - lastTimestamp) / 1000;
+          if (dt > 0.001) {
+            const dy = marker.y - lastY; // 下方向がプラス
+            velocity = dy / dt;
+          }
+        }
+
+        // 軌跡の更新（最新12フレーム保持）
+        trail.push({ x: marker.x, y: marker.y, isWarning });
+        if (trail.length > 12) trail.shift();
 
         // 状態遷移判定
         if (velocity > VELOCITY_MOVE_THRESHOLD) {
@@ -192,39 +1009,73 @@
           }
           const tut = ((timestamp - eccentricStartTime) / 1000).toFixed(1);
           tutDisplay.innerText = `${tut}s`;
+          fsTut.innerText = `${tut}s`;
 
-          // 速度チェック：落としすぎていないか？
+          // 落下チェック
           if (velocity > MAX_ALLOWED_ECC_VELOCITY) {
             isWarning = true;
             phaseDisplay.innerText = '⚠️ 落下（負荷抜け）';
             phaseDisplay.className = 'metric-value status-warn';
-            playBeep(220, 'square', 0.08); // 警告ブザー
+            fsPhase.innerText = '⚠️ 落下';
+            fsPhase.className = 'metric-value status-warn';
+            hudMarkerStatus.className = 'hud-chip warn';
+            playBeep(220, 'square', 0.06); // 警告音
           } else {
             isWarning = false;
-            phaseDisplay.innerText = 'エキセントリック';
+            phaseDisplay.innerText = 'エキセントリック ⬇️';
             phaseDisplay.className = 'metric-value status-ok';
+            fsPhase.innerText = '下降 (ECC)';
+            fsPhase.className = 'metric-value status-ok';
           }
         } else if (velocity < -VELOCITY_MOVE_THRESHOLD) {
           // 上昇中（コンセントリック）
           if (phase === 'ECCENTRIC') {
             repCount++;
             repDisplay.innerText = repCount;
-            playBeep(880, 'sine', 0.15); // 挙上成功チャイム
+            fsRep.innerText = repCount;
+            playBeep(880, 'sine', 0.14); // 挙上成功音
           }
           phase = 'CONCENTRIC';
           isWarning = false;
-          phaseDisplay.innerText = '挙上中';
-          phaseDisplay.className = 'metric-value';
+          phaseDisplay.innerText = '挙上中 ⬆️';
+          phaseDisplay.className = 'metric-value status-concentric';
+          fsPhase.innerText = '挙上 (CON)';
+          fsPhase.className = 'metric-value status-concentric';
         } else {
-          // 静止・ボトム停止
+          // 静止
           if (phase === 'ECCENTRIC') {
             const tut = ((timestamp - eccentricStartTime) / 1000).toFixed(1);
             tutDisplay.innerText = `${tut}s`;
+            fsTut.innerText = `${tut}s`;
           }
         }
 
-        velocityDisplay.innerText = Math.round(Math.abs(velocity));
+        const absVel = Math.round(Math.abs(velocity));
+        velocityDisplay.innerText = absVel;
+        fsVelocity.innerText = absVel;
+        hudVelocityTag.innerText = `${absVel} px/s`;
+
+        // 高視認性マーカーHUDの描画
+        drawEnhancedMarkerHUD(marker.x, marker.y, absVel, isWarning);
+
         lastY = marker.y;
+      } else {
+        // マーカー見失い時
+        targetLocked = false;
+        trail = []; // 軌跡クリア
+        hudMarkerStatus.className = 'hud-chip searching';
+        hudStatusText.innerText = 'マーカー探索中...';
+        hudVelocityTag.innerText = '0 px/s';
+
+        // 画面上部に視認補助ガイドを描画
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, canvas.width, 36);
+        ctx.font = '600 14px "Inter", sans-serif';
+        ctx.fillStyle = '#fde047';
+        ctx.textAlign = 'center';
+        ctx.fillText(`🎯 ${selectedColor === 'red' ? '赤色' : selectedColor}マーカーをカメラ内に映してください`, canvas.width / 2, 23);
+        ctx.restore();
       }
 
       lastTimestamp = timestamp;
