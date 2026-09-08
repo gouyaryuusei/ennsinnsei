@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Eccentric Velocity Tracker (Prototype)</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #121212;
+      color: #ffffff;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+    h1 { font-size: 1.2rem; margin-bottom: 8px; }
+    .container { position: relative; width: 100%; max-width: 480px; }
+    video, canvas {
+      width: 100%;
+      border-radius: 8px;
+      display: block;
+    }
+    video { display: none; }
+    .dashboard {
+      margin-top: 12px;
+      width: 100%;
+      max-width: 480px;
+      background: #1e1e1e;
+      padding: 12px;
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .metric {
+      background: #2a2a2a;
+      padding: 8px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .metric-label { font-size: 0.75rem; color: #888; }
+    .metric-value { font-size: 1.4rem; font-weight: bold; margin-top: 4px; }
+    .status-ok { color: #4ade80; }
+    .status-warn { color: #f87171; }
+    button {
+      margin-top: 12px;
+      padding: 10px 24px;
+      font-size: 1rem;
+      font-weight: bold;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:active { background: #1d4ed8; }
+  </style>
+</head>
+<body>
+
+  <h1>EBT: ネガティブ速度・負荷抜けチェッカー</h1>
+
+  <div class="container">
+    <video id="webcam" playsinline autoplay></video>
+    <canvas id="output"></canvas>
+  </div>
+
+  <div class="dashboard">
+    <div class="metric">
+      <div class="metric-label">現在のフェーズ</div>
+      <div id="phaseDisplay" class="metric-value">-</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">降下速度 (px/s)</div>
+      <div id="velocityDisplay" class="metric-value">0</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">ネガティブ時間 (TUT)</div>
+      <div id="tutDisplay" class="metric-value">0.0s</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">総レップ数</div>
+      <div id="repDisplay" class="metric-value">0</div>
+    </div>
+  </div>
+
+  <button id="startBtn">カメラ起動 / トラッキング開始</button>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('output');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const startBtn = document.getElementById('startBtn');
+
+    // UI要素
+    const phaseDisplay = document.getElementById('phaseDisplay');
+    const velocityDisplay = document.getElementById('velocityDisplay');
+    const tutDisplay = document.getElementById('tutDisplay');
+    const repDisplay = document.getElementById('repDisplay');
+
+    // Web Audio API（警告音）
+    let audioCtx = null;
+    function playBeep(freq = 440, type = 'sine', duration = 0.1) {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+      osc.stop(audioCtx.currentTime + duration);
+    }
+
+    // トラッキング・運動状態
+    let lastY = null;
+    let lastTimestamp = null;
+    let phase = 'STILL'; // STILL, ECCENTRIC, CONCENTRIC
+    let eccentricStartTime = 0;
+    let repCount = 0;
+    let isWarning = false;
+
+    // 閾値設定（調整可能）
+    const VELOCITY_MOVE_THRESHOLD = 30; // 運動開始判定の最小速度 (px/s)
+    const MAX_ALLOWED_ECC_VELOCITY = 260; // これを超えると「脱力・落下」と判定 (px/s)
+
+    startBtn.addEventListener('click', async () => {
+      startBtn.style.display = 'none';
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 480, height: 640, facingMode: 'environment' },
+        audio: false
+      });
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        requestAnimationFrame(processFrame);
+      };
+    });
+
+    // 簡易的な色抽出（赤〜オレンジ系のマーカーを追跡）
+    function trackColor(imageData) {
+      const data = imageData.data;
+      let totalX = 0, totalY = 0, count = 0;
+      const step = 4; // 高速化のため4ピクセルごとに間引き
+
+      for (let y = 0; y < canvas.height; y += step) {
+        for (let x = 0; x < canvas.width; x += step) {
+          const idx = (y * canvas.width + x) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+
+          // 鮮やかな赤色判定 (Rが高く、G/Bとの差が大きい領域)
+          if (r > 150 && g < 80 && b < 80) {
+            totalX += x;
+            totalY += y;
+            count++;
+          }
+        }
+      }
+      return count > 15 ? { x: totalX / count, y: totalY / count } : null;
+    }
+
+    function processFrame(timestamp) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const marker = trackColor(frame);
+
+      if (marker && lastTimestamp) {
+        const dt = (timestamp - lastTimestamp) / 1000; // 秒
+        const dy = marker.y - (lastY !== null ? lastY : marker.y); // 下向きがプラス
+        const velocity = dy / dt; // 符号付き速度 (px/s)
+
+        // マーカー位置を描画
+        ctx.beginPath();
+        ctx.arc(marker.x, marker.y, 12, 0, 2 * Math.PI);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = isWarning ? '#ef4444' : '#22c55e';
+        ctx.stroke();
+
+        // 状態遷移判定
+        if (velocity > VELOCITY_MOVE_THRESHOLD) {
+          // 下降中（エキセントリック）
+          if (phase !== 'ECCENTRIC') {
+            phase = 'ECCENTRIC';
+            eccentricStartTime = timestamp;
+          }
+          const tut = ((timestamp - eccentricStartTime) / 1000).toFixed(1);
+          tutDisplay.innerText = `${tut}s`;
+
+          // 速度チェック：落としすぎていないか？
+          if (velocity > MAX_ALLOWED_ECC_VELOCITY) {
+            isWarning = true;
+            phaseDisplay.innerText = '⚠️ 落下（負荷抜け）';
+            phaseDisplay.className = 'metric-value status-warn';
+            playBeep(220, 'square', 0.08); // 警告ブザー
+          } else {
+            isWarning = false;
+            phaseDisplay.innerText = 'エキセントリック';
+            phaseDisplay.className = 'metric-value status-ok';
+          }
+        } else if (velocity < -VELOCITY_MOVE_THRESHOLD) {
+          // 上昇中（コンセントリック）
+          if (phase === 'ECCENTRIC') {
+            repCount++;
+            repDisplay.innerText = repCount;
+            playBeep(880, 'sine', 0.15); // 挙上成功チャイム
+          }
+          phase = 'CONCENTRIC';
+          isWarning = false;
+          phaseDisplay.innerText = '挙上中';
+          phaseDisplay.className = 'metric-value';
+        } else {
+          // 静止・ボトム停止
+          if (phase === 'ECCENTRIC') {
+            const tut = ((timestamp - eccentricStartTime) / 1000).toFixed(1);
+            tutDisplay.innerText = `${tut}s`;
+          }
+        }
+
+        velocityDisplay.innerText = Math.round(Math.abs(velocity));
+        lastY = marker.y;
+      }
+
+      lastTimestamp = timestamp;
+      requestAnimationFrame(processFrame);
+    }
+  </script>
+</body>
+</html>
