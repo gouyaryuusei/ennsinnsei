@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ebt-tracker-v2';
+const CACHE_NAME = 'ebt-tracker-v5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -18,13 +18,14 @@ const ASSETS_TO_CACHE = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[ServiceWorker] Pre-caching offline assets');
       return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
         console.warn('[ServiceWorker] Some assets failed to pre-cache:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -34,7 +35,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keyList.map((key) => {
           if (key !== CACHE_NAME) {
-            console.log('[ServiceWorker] Removing old cache:', key);
+            console.log('[ServiceWorker] Purging old cache:', key);
             return caches.delete(key);
           }
         })
@@ -46,6 +47,28 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
+  const url = new URL(event.request.url);
+  const isNavigation = event.request.mode === 'navigate' || url.pathname.endsWith('index.html') || url.pathname.endsWith('/');
+
+  // HTMLナビゲーションは Network-First（オンライン時は必ず最新を取得し、オフライン時のみキャッシュを利用）
+  if (isNavigation) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => cached || caches.match('./index.html'));
+        })
+    );
+    return;
+  }
+
+  // 静的リソース（MediaPipe Wasm/モデル等）は Cache-First（高速化＆完全オフライン対応）
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -61,7 +84,6 @@ self.addEventListener('fetch', (event) => {
         });
         return networkResponse;
       }).catch(() => {
-        // オフライン時のフォールバック
         return caches.match('./index.html');
       });
     })
