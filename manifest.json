@@ -1,0 +1,9 @@
+{
+  "name": "EBT 全身ポーズ認識＆ネガティブ速度チェッカー",
+  "short_name": "EBT Tracker",
+  "description": "全身ポーズ認識と速度追跡・トレーニング支援ツール（オフライン対応）",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0a0e17",
+  "theme_color": "#0a0e17"
+}

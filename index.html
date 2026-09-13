@@ -5,14 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>EBT: 全身ポーズ認識＆ネガティブ速度チェッカー</title>
   
-  <!-- Google Fonts -->
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0a0e17">
+
+  <!-- Google Fonts (オンライン時用、オフライン時はシステムフォントへフォールバック) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   
-  <!-- MediaPipe Pose -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <!-- MediaPipe Pose (オフライン完全対応ローカル読み込み) -->
+  <script src="./mediapipe/camera_utils.js"></script>
+  <script src="./mediapipe/pose.js"></script>
 
   <style>
     :root {
@@ -450,7 +454,7 @@
       border-radius: 12px;
       padding: 10px 14px;
       display: none;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 8px;
       text-align: center;
       z-index: 4;
@@ -506,6 +510,273 @@
     .status-ok { color: var(--accent-green); }
     .status-warn { color: var(--accent-warn); text-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
     .status-concentric { color: var(--accent-blue); }
+
+    /* 評価モード切替カード */
+    .eval-mode-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .eval-mode-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .eval-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #93c5fd;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .eval-target-desc {
+      font-size: 0.72rem;
+      color: #cbd5e1;
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .eval-mode-selector {
+      display: flex;
+      gap: 8px;
+    }
+
+    .eval-mode-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: inherit;
+    }
+
+    .eval-mode-btn:hover {
+      background: rgba(30, 41, 59, 0.9);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .eval-mode-btn.active {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(6, 182, 212, 0.2) 100%);
+      border-color: #38bdf8;
+      color: #f8fafc;
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+    }
+
+    .eval-mode-btn .mode-icon {
+      font-size: 1.1rem;
+    }
+
+    .eval-mode-btn .mode-text {
+      font-size: 0.8rem;
+      font-weight: 700;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      line-height: 1.2;
+    }
+
+    .eval-mode-btn small {
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+    .eval-mode-btn.active small {
+      color: #7dd3fc;
+    }
+
+    /* 評価バッジ表示 */
+    .eval-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+    .eval-sub-time {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-left: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .badge-great {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+    }
+    .badge-good {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(2, 132, 199, 0.35);
+    }
+    .badge-ok {
+      background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(234, 88, 12, 0.35);
+    }
+
+    /* レップフィードバック ポップアップ (カメラオーバーレイ) */
+    .rep-feedback-popup {
+      position: absolute;
+      top: 48%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.5);
+      pointer-events: none;
+      z-index: 10;
+      opacity: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .rep-feedback-popup.animate {
+      animation: popFeedback 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes popFeedback {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.5);
+      }
+      20% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.15);
+      }
+      40% {
+        transform: translate(-50%, -50%) scale(1);
+      }
+      80% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -65%) scale(0.95);
+      }
+    }
+
+    .popup-badge-inner {
+      font-family: 'Inter', sans-serif;
+      font-size: 2rem;
+      font-weight: 900;
+      padding: 6px 20px;
+      border-radius: 999px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+    .popup-time-inner {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 3px 12px;
+      border-radius: 999px;
+      color: #fff;
+    }
+
+    /* レップ履歴 & 統計 */
+    .rep-history-section {
+      background: rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #93c5fd;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .history-stats {
+      display: flex;
+      gap: 6px;
+      font-size: 0.7rem;
+    }
+    .stat-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .stat-great { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .stat-good { background: rgba(2, 132, 199, 0.2); color: #38bdf8; border: 1px solid rgba(2, 132, 199, 0.4); }
+    .stat-ok { background: rgba(234, 88, 12, 0.2); color: #fb923c; border: 1px solid rgba(234, 88, 12, 0.4); }
+
+    .rep-history-list {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      min-height: 48px;
+      align-items: center;
+    }
+    .history-item {
+      flex: 0 0 auto;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 4px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      font-size: 0.7rem;
+    }
+    .history-rep-num {
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    .history-time {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    .history-badge {
+      font-size: 0.6rem;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .history-empty {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      padding: 6px 0;
+    }
 
     /* 設定パネル */
     .settings-panel {
@@ -646,6 +917,16 @@
           <div class="metric-label">レップ数</div>
           <div id="fsRep" style="font-family: 'JetBrains Mono'; font-weight: 700; font-size: 0.95rem; color: #60a5fa;">0</div>
         </div>
+        <div>
+          <div class="metric-label">評価</div>
+          <div id="fsRating" style="font-weight: 800; font-size: 0.95rem; color: #cbd5e1;">-</div>
+        </div>
+      </div>
+
+      <!-- レップ評価ポップアップ演出 -->
+      <div id="repFeedbackPopup" class="rep-feedback-popup">
+        <div id="popupBadge" class="popup-badge-inner badge-great">GREAT!</div>
+        <div id="popupTime" class="popup-time-inner">2.4s</div>
       </div>
 
       <!-- プレースホルダ -->
@@ -657,6 +938,24 @@
         </div>
         <button id="startBtn" class="btn-primary">
           <span>📷</span> カメラ起動 / 計測開始
+        </button>
+      </div>
+    </div>
+
+    <!-- 評価モード切替セクション -->
+    <div class="eval-mode-card">
+      <div class="eval-mode-header">
+        <span class="eval-title">🎯 評価モード切替</span>
+        <span id="evalTargetDesc" class="eval-target-desc">目標: 遠心性 2.0〜3.0s (±0.5s許容)</span>
+      </div>
+      <div class="eval-mode-selector">
+        <button id="modeHypertrophyBtn" class="eval-mode-btn active" type="button">
+          <span class="mode-icon">💪</span>
+          <span class="mode-text">筋肥大モード<small>2.0~3.0s=GREAT / ±0.5s=GOOD</small></span>
+        </button>
+        <button id="modePowerBtn" class="eval-mode-btn" type="button">
+          <span class="mode-icon">⚡</span>
+          <span class="mode-text">瞬発力モード<small>≤1.0s=GREAT / その他=GOOD</small></span>
         </button>
       </div>
     </div>
@@ -686,10 +985,19 @@
       </div>
       <div class="metric-card">
         <div class="metric-header">
+          <span class="metric-label">最新レップ評価</span>
+          <span id="evalModeShortTag" style="font-size: 0.7rem; color: #38bdf8;">筋肥大</span>
+        </div>
+        <div id="ratingDisplay" class="metric-value" style="font-size: 1.25rem;">
+          <span style="color: var(--text-muted); font-size: 1rem;">-</span>
+        </div>
+      </div>
+      <div class="metric-card" style="grid-column: span 2;">
+        <div class="metric-header">
           <span class="metric-label">総レップ数</span>
           <span>🏋️</span>
         </div>
-        <div id="repDisplay" class="metric-value" style="color: #60a5fa;">0</div>
+        <div id="repDisplay" class="metric-value" style="color: #60a5fa; font-size: 1.8rem;">0</div>
       </div>
     </div>
 
@@ -719,6 +1027,21 @@
       <div class="setting-row">
         <span>体幹・一直線ガイド表示:</span>
         <button id="toggleGuideBtn" class="btn-tool active">ON</button>
+      </div>
+
+      <!-- レップ履歴 & 評価統計 -->
+      <div class="rep-history-section">
+        <div class="history-header">
+          <span>📊 レップ評価サマリー</span>
+          <div class="history-stats">
+            <span class="stat-badge stat-great">GREAT: <strong id="statGreatCount">0</strong></span>
+            <span class="stat-badge stat-good">GOOD: <strong id="statGoodCount">0</strong></span>
+            <span class="stat-badge stat-ok">OK: <strong id="statOkCount">0</strong></span>
+          </div>
+        </div>
+        <div id="repHistoryList" class="rep-history-list">
+          <div class="history-empty">レップ完了時にここに履歴が表示されます</div>
+        </div>
       </div>
 
       <!-- リセット -->
@@ -783,6 +1106,21 @@
     const toggleGuideBtn = document.getElementById('toggleGuideBtn');
     const resetRepBtn = document.getElementById('resetRepBtn');
 
+    // 評価モード＆フィードバック要素
+    const modeHypertrophyBtn = document.getElementById('modeHypertrophyBtn');
+    const modePowerBtn = document.getElementById('modePowerBtn');
+    const evalTargetDesc = document.getElementById('evalTargetDesc');
+    const evalModeShortTag = document.getElementById('evalModeShortTag');
+    const ratingDisplay = document.getElementById('ratingDisplay');
+    const fsRating = document.getElementById('fsRating');
+    const repFeedbackPopup = document.getElementById('repFeedbackPopup');
+    const popupBadge = document.getElementById('popupBadge');
+    const popupTime = document.getElementById('popupTime');
+    const statGreatCount = document.getElementById('statGreatCount');
+    const statGoodCount = document.getElementById('statGoodCount');
+    const statOkCount = document.getElementById('statOkCount');
+    const repHistoryList = document.getElementById('repHistoryList');
+
     // --- カメラ＆動作状態 ---
     let currentFacingMode = 'user';
     let isMirror = true;
@@ -821,6 +1159,12 @@
     let lastRepTime = 0;
     let isWarning = false;
 
+    // 評価モード＆履歴用ステート
+    let currentEvalMode = 'HYPERTROPHY'; // 'HYPERTROPHY' | 'POWER'
+    let lastCompletedTut = 0;
+    let repHistory = [];
+    let statCounts = { GREAT: 0, GOOD: 0, OK: 0 };
+
     const VELOCITY_MOVE_THRESHOLD = 25;
     const MAX_ALLOWED_ECC_VELOCITY = 240;
 
@@ -844,11 +1188,128 @@
       }
     }
 
+    // 評価サウンド
+    function playGreatSound() {
+      playBeep(523.25, 'sine', 0.08); // C5
+      setTimeout(() => playBeep(659.25, 'sine', 0.08), 90); // E5
+      setTimeout(() => playBeep(783.99, 'sine', 0.18), 180); // G5
+    }
+    function playGoodSound() {
+      playBeep(587.33, 'sine', 0.1); // D5
+      setTimeout(() => playBeep(880, 'sine', 0.16), 110); // A5
+    }
+    function playOkSound() {
+      playBeep(440, 'sine', 0.15); // A4
+    }
+
+    // 評価判定ロジック
+    // 筋肥大: 2~3s => GREAT, ±0.5s (1.5~2.0s未満 または 3.0~3.5s以下) => GOOD, それ以外 => OK
+    // 瞬発力: 1秒以内 (<=1.0s) => GREAT, それ以外 (>1.0s) => GOOD
+    function evaluateRep(tutSeconds) {
+      let rating = 'OK';
+      let badgeClass = 'badge-ok';
+
+      if (currentEvalMode === 'HYPERTROPHY') {
+        if (tutSeconds >= 2.0 && tutSeconds <= 3.0) {
+          rating = 'GREAT';
+          badgeClass = 'badge-great';
+        } else if ((tutSeconds >= 1.5 && tutSeconds < 2.0) || (tutSeconds > 3.0 && tutSeconds <= 3.5)) {
+          rating = 'GOOD';
+          badgeClass = 'badge-good';
+        } else {
+          rating = 'OK';
+          badgeClass = 'badge-ok';
+        }
+      } else {
+        // 瞬発力モード
+        if (tutSeconds <= 1.0) {
+          rating = 'GREAT';
+          badgeClass = 'badge-great';
+        } else {
+          rating = 'GOOD';
+          badgeClass = 'badge-good';
+        }
+      }
+      return { rating, badgeClass };
+    }
+
+    // レップ評価UIおよび演出の更新
+    function updateRepEvaluationUI(count, tutSeconds) {
+      const { rating, badgeClass } = evaluateRep(tutSeconds);
+
+      // 統計集計
+      if (statCounts[rating] !== undefined) {
+        statCounts[rating]++;
+      }
+      statGreatCount.innerText = statCounts.GREAT;
+      statGoodCount.innerText = statCounts.GOOD;
+      statOkCount.innerText = statCounts.OK;
+
+      // ダッシュボード更新
+      ratingDisplay.innerHTML = `<span class="eval-badge ${badgeClass}">${rating}</span><span class="eval-sub-time">${tutSeconds.toFixed(1)}s</span>`;
+      fsRating.innerText = rating;
+      fsRating.className = `eval-badge ${badgeClass}`;
+
+      // カメラ映像上のポップアップ演出
+      popupBadge.className = `popup-badge-inner ${badgeClass}`;
+      popupBadge.innerText = `${rating}!`;
+      popupTime.innerText = `遠心性: ${tutSeconds.toFixed(1)}s`;
+      repFeedbackPopup.classList.remove('animate');
+      void repFeedbackPopup.offsetWidth; // 強制リフロー
+      repFeedbackPopup.classList.add('animate');
+
+      // サウンド再生
+      if (rating === 'GREAT') playGreatSound();
+      else if (rating === 'GOOD') playGoodSound();
+      else playOkSound();
+
+      // 履歴追加
+      addRepHistoryItem(count, tutSeconds, rating, badgeClass);
+    }
+
+    function addRepHistoryItem(count, tutSeconds, rating, badgeClass) {
+      repHistory.unshift({ count, tut: tutSeconds, rating, badgeClass, mode: currentEvalMode });
+      if (repHistory.length > 30) repHistory.pop();
+      renderRepHistoryList();
+    }
+
+    function renderRepHistoryList() {
+      if (repHistory.length === 0) {
+        repHistoryList.innerHTML = '<div class="history-empty">レップ完了時にここに履歴が表示されます</div>';
+        return;
+      }
+      repHistoryList.innerHTML = repHistory.map(item => `
+        <div class="history-item">
+          <span class="history-rep-num">#${item.count}</span>
+          <span class="history-time">${item.tut.toFixed(1)}s</span>
+          <span class="history-badge ${item.badgeClass}">${item.rating}</span>
+        </div>
+      `).join('');
+    }
+
+    // 評価モード切替処理
+    function switchEvalMode(mode) {
+      currentEvalMode = mode;
+      if (mode === 'HYPERTROPHY') {
+        modeHypertrophyBtn.classList.add('active');
+        modePowerBtn.classList.remove('active');
+        evalTargetDesc.innerText = "目標: 遠心性 2.0〜3.0s (±0.5s許容)";
+        evalModeShortTag.innerText = "筋肥大";
+      } else {
+        modePowerBtn.classList.add('active');
+        modeHypertrophyBtn.classList.remove('active');
+        evalTargetDesc.innerText = "目標: 遠心性 ≤1.0s (瞬発切り返し)";
+        evalModeShortTag.innerText = "瞬発力";
+      }
+    }
+    modeHypertrophyBtn.addEventListener('click', () => switchEvalMode('HYPERTROPHY'));
+    modePowerBtn.addEventListener('click', () => switchEvalMode('POWER'));
+
     // --- MediaPipe Pose初期化 ---
     function initPose() {
       if (poseDetector) return;
       poseDetector = new Pose({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+        locateFile: (file) => `./mediapipe/${file}`
       });
 
       poseDetector.setOptions({
@@ -1012,6 +1473,16 @@
       fsRep.innerText = 0;
       tutDisplay.innerText = "0.0s";
       fsTut.innerText = "0.0s";
+      ratingDisplay.innerHTML = '<span style="color: var(--text-muted); font-size: 1rem;">-</span>';
+      fsRating.innerText = '-';
+      fsRating.className = '';
+      lastCompletedTut = 0;
+      repHistory = [];
+      statCounts = { GREAT: 0, GOOD: 0, OK: 0 };
+      statGreatCount.innerText = 0;
+      statGoodCount.innerText = 0;
+      statOkCount.innerText = 0;
+      renderRepHistoryList();
       motionState = 'TOP';
       if (!isCalibrated) topBaselineY = null;
     });
@@ -1296,6 +1767,7 @@
 
           if (velocity < -VELOCITY_MOVE_THRESHOLD && (bottomY - topBaselineY) >= minDisplacement) {
             motionState = 'CONCENTRIC';
+            lastCompletedTut = parseFloat(((timestamp - eccentricStartTime) / 1000).toFixed(1));
             isWarning = false;
           }
           break;
@@ -1313,7 +1785,10 @@
               repDisplay.innerText = repCount;
               fsRep.innerText = repCount;
               lastRepTime = timestamp;
-              playBeep(880, 'sine', 0.15);
+
+              const effectiveTut = lastCompletedTut > 0 ? lastCompletedTut : parseFloat(((timestamp - eccentricStartTime) / 1000).toFixed(1));
+              updateRepEvaluationUI(repCount, effectiveTut);
+              lastCompletedTut = 0;
             }
             motionState = 'TOP';
             if (!isCalibrated) topBaselineY = currentY;
@@ -1442,6 +1917,15 @@
       ctx.textAlign = 'center';
       ctx.fillText('🧍 頭から足元までが映るようカメラの位置を調整してください', canvas.width / 2, 23);
       ctx.restore();
+    }
+
+    // --- オフライン対応 Service Worker 登録 ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => {
+          console.warn('[PWA] Service Worker registration skipped/failed:', err);
+        });
+      });
     }
   </script>
 </body>
