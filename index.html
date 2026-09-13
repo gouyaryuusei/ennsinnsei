@@ -1128,6 +1128,9 @@
     let isCameraRunning = false;
     let currentStream = null;
     let poseDetector = null;
+    let isPoseProcessing = false;
+    let latestPoseResults = null;
+    let isModelLoaded = false;
 
     // --- トラッキング＆ブレ防止フィルタ ---
     let trackingTarget = 'hip';
@@ -1352,9 +1355,16 @@
 
       try {
         currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.muted = true;
         video.srcObject = currentStream;
         await video.play();
 
+        // 映像寸法を即時反映
+        if (video.videoWidth > 0) {
+          updateCanvasDimensions(video.videoWidth, video.videoHeight);
+        }
         video.onloadedmetadata = () => {
           updateCanvasDimensions(video.videoWidth, video.videoHeight);
         };
@@ -1583,9 +1593,46 @@
     // --- メインループ ---
     async function processVideoLoop() {
       if (!isCameraRunning) return;
-      if (video.readyState >= 2 && poseDetector) {
-        await poseDetector.send({ image: video });
+
+      // 1. カメラ映像が準備できていれば、直ちにCanvasへ直接描画（真っ暗を100%防止）
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        updateCanvasDimensions(video.videoWidth, video.videoHeight);
+
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (isMirror) {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.restore();
       }
+
+      // 2. Pose検出器が未初期化なら初期化を試行
+      if (!poseDetector) {
+        initPose();
+      }
+
+      // 3. MediaPipe Pose へのフレーム送信（多重呼び出し防止）
+      if (video.readyState >= 2 && poseDetector && !isPoseProcessing) {
+        isPoseProcessing = true;
+        poseDetector.send({ image: video })
+          .catch(err => {
+            console.warn("Pose send error:", err);
+          })
+          .finally(() => {
+            isPoseProcessing = false;
+          });
+      }
+
+      // 4. 最新のAI検出結果があれば骨格・マーカーをオーバーレイ描画
+      if (latestPoseResults) {
+        renderPoseOverlay(latestPoseResults);
+      } else {
+        // AIモデルロード中のガイド
+        drawModelLoadingOverlay();
+      }
+
       requestAnimationFrame(processVideoLoop);
     }
 
@@ -1593,24 +1640,27 @@
 
     function onPoseResults(results) {
       if (!isCameraRunning) return;
+      isModelLoaded = true;
+      latestPoseResults = results;
+    }
+
+    function drawModelLoadingOverlay() {
+      if (isModelLoaded) return;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.fillRect(0, 0, canvas.width, 32);
+      ctx.font = '600 13px "Inter", sans-serif';
+      ctx.fillStyle = '#38bdf8';
+      ctx.textAlign = 'center';
+      ctx.fillText('🤖 AI姿勢モデルを準備中...', canvas.width / 2, 21);
+      ctx.restore();
+    }
+
+    // 骨格・マーカーおよびアライメントのオーバーレイ描画
+    function renderPoseOverlay(results) {
       const now = performance.now();
       const dt = (now - lastFrameTimestamp) / 1000;
       lastFrameTimestamp = now;
-
-      // 映像の実際のサイズに確実に合わせる（画像つぶれ防止）
-      const realWidth = results.image.width || video.videoWidth;
-      const realHeight = results.image.height || video.videoHeight;
-      updateCanvasDimensions(realWidth, realHeight);
-
-      // 1. 映像描画（元映像のアスペクト比100%で等倍描画）
-      ctx.save();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (isMirror) {
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-      }
-      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-      ctx.restore();
 
       if (!results.poseLandmarks) {
         hudMarkerStatus.className = 'hud-chip searching';
