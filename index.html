@@ -1150,7 +1150,8 @@
     let calibMode = null;
     let calibTimer = null;
     let calibStableFrames = 0;
-    const REQUIRED_STABLE_FRAMES = 50;
+    const REQUIRED_STABLE_FRAMES = 25; // スマホでの操作性を高めるため約0.8秒に最適化
+    let poseProcessStartTime = 0;
 
     // --- 厳密なレップ数判定ステートマシン ---
     let motionState = 'TOP';
@@ -1542,14 +1543,24 @@
           playBeep(440, 'sine', 0.1);
         } else {
           clearInterval(calibTimer);
-          calibCountdown.innerText = "🌟";
-          calibInstruction.innerText = "キャリブレーション完了！";
-          playBeep(880, 'sine', 0.25);
-          applyCalibration();
-          setTimeout(() => {
-            calibOverlay.classList.remove('active');
-            calibMode = null;
-          }, 800);
+          const success = applyCalibration();
+          if (success) {
+            calibCountdown.innerText = "🌟";
+            calibInstruction.innerText = "キャリブレーション完了！";
+            playBeep(880, 'sine', 0.25);
+            setTimeout(() => {
+              calibOverlay.classList.remove('active');
+              calibMode = null;
+            }, 700);
+          } else {
+            calibCountdown.innerText = "⚠️";
+            calibInstruction.innerText = "体が認識されませんでした";
+            calibSubInstruction.innerText = "カメラに全身または上半身が映るよう離れてください";
+            setTimeout(() => {
+              calibOverlay.classList.remove('active');
+              calibMode = null;
+            }, 1800);
+          }
         }
       }, 1000);
     }
@@ -1567,15 +1578,38 @@
       calibProgressBox.style.display = 'block';
       calibProgressBar.style.width = '0%';
       calibCountdown.innerText = "🎯";
-      calibInstruction.innerText = "全身をカメラに映して静止してください";
-      calibSubInstruction.innerText = "頭から足首まで検出し、静止すると自動で確定します";
+      calibInstruction.innerText = "カメラに映って静止してください";
+      calibSubInstruction.innerText = "約1秒静止すると自動で基準を記憶します";
     }
 
     function applyCalibration() {
-      if (!smoothedLandmarks) return;
+      // smoothedLandmarks または latestPoseResults からランドマークを取得
+      let lm = smoothedLandmarks;
+      if (!lm && latestPoseResults && latestPoseResults.poseLandmarks) {
+        lm = [];
+        const raw = latestPoseResults.poseLandmarks;
+        for (let i = 0; i < raw.length; i++) {
+          let x = raw[i].x * canvas.width;
+          let y = raw[i].y * canvas.height;
+          if (isMirror) x = canvas.width - x;
+          lm[i] = { x, y, visibility: raw[i].visibility };
+        }
+        smoothedLandmarks = lm;
+      }
+
+      if (!lm || lm.length === 0) return false;
+
       isCalibrated = true;
       calibBadge.innerText = "✅ 基準ロック済";
       calibBadge.className = "calib-status-badge ready";
+
+      if (!smoothedTrackPoint) {
+        if (trackingTarget === 'hip' && lm[23] && lm[24]) {
+          smoothedTrackPoint = { x: (lm[23].x + lm[24].x) / 2, y: (lm[23].y + lm[24].y) / 2 };
+        } else if (lm[11] && lm[12]) {
+          smoothedTrackPoint = { x: (lm[11].x + lm[12].x) / 2, y: (lm[11].y + lm[12].y) / 2 };
+        }
+      }
 
       if (smoothedTrackPoint) {
         calibratedTopY = smoothedTrackPoint.y;
@@ -1583,12 +1617,28 @@
         bottomY = smoothedTrackPoint.y;
       }
 
-      const headY = smoothedLandmarks[0].y;
-      const ankleY = (smoothedLandmarks[27].y + smoothedLandmarks[28].y) / 2;
-      calibratedHeight = Math.abs(ankleY - headY);
-      calibratedCenterX = (smoothedLandmarks[11].x + smoothedLandmarks[12].x) / 2;
+      const headY = lm[0] ? lm[0].y : 0;
+      
+      // 足首・膝・腰のどれかが映っていれば高精度に身体長を計算
+      if (lm[27] && lm[28] && lm[27].visibility > 0.3 && lm[28].visibility > 0.3) {
+        const ankleY = (lm[27].y + lm[28].y) / 2;
+        calibratedHeight = Math.abs(ankleY - headY);
+      } else if (lm[25] && lm[26] && lm[25].visibility > 0.3 && lm[26].visibility > 0.3) {
+        const kneeY = (lm[25].y + lm[26].y) / 2;
+        calibratedHeight = Math.abs(kneeY - headY) * 1.35; // 膝から全身比率換算
+      } else if (lm[23] && lm[24]) {
+        const hipY = (lm[23].y + lm[24].y) / 2;
+        calibratedHeight = Math.abs(hipY - headY) * 1.9; // 腰から全身比率換算
+      } else {
+        calibratedHeight = canvas.height * 0.75;
+      }
 
-      minDisplacement = Math.max(35, calibratedHeight * 0.12);
+      if (lm[11] && lm[12]) {
+        calibratedCenterX = (lm[11].x + lm[12].x) / 2;
+      }
+
+      minDisplacement = Math.max(30, calibratedHeight * 0.12);
+      return true;
     }
 
     // --- メインループ ---
@@ -1614,9 +1664,14 @@
         initPose();
       }
 
-      // 3. MediaPipe Pose へのフレーム送信（多重呼び出し防止）
+      // 3. MediaPipe Pose へのフレーム送信（ハング防止タイムアウト付き）
+      const now = performance.now();
+      const isStuck = isPoseProcessing && (now - poseProcessStartTime > 450);
+      if (isStuck) isPoseProcessing = false;
+
       if (video.readyState >= 2 && poseDetector && !isPoseProcessing) {
         isPoseProcessing = true;
+        poseProcessStartTime = now;
         poseDetector.send({ image: video })
           .catch(err => {
             console.warn("Pose send error:", err);
@@ -1742,45 +1797,45 @@
     }
 
     function handleFullCalibrationCheck(lm, speed) {
-      const isVisible = (
-        lm[0].visibility > 0.5 &&
-        lm[11].visibility > 0.5 && lm[12].visibility > 0.5 &&
-        lm[23].visibility > 0.5 && lm[24].visibility > 0.5 &&
-        lm[27].visibility > 0.4 && lm[28].visibility > 0.4
+      // 体幹（肩・腰）が認識できていれば判定可能（足首が切れていてもOK）
+      const hasTorso = (
+        lm[11] && lm[12] && lm[23] && lm[24] &&
+        lm[11].visibility > 0.35 && lm[12].visibility > 0.35 &&
+        lm[23].visibility > 0.35 && lm[24].visibility > 0.35
       );
 
-      const isStill = speed < 18;
+      const isStill = speed < 25; // 許容速度を緩和（呼吸等の微動でキャンセルされないように）
 
-      if (isVisible && isStill) {
+      if (hasTorso && isStill) {
         calibStableFrames++;
         const pct = Math.min(100, Math.round((calibStableFrames / REQUIRED_STABLE_FRAMES) * 100));
         calibProgressBar.style.width = `${pct}%`;
         calibInstruction.innerText = `静止をキープ (${pct}%)`;
-        calibSubInstruction.innerText = "安定して全身を読み取っています...";
+        calibSubInstruction.innerText = "安定して姿勢を記憶しています...";
 
         if (calibStableFrames >= REQUIRED_STABLE_FRAMES) {
           calibProgressBar.style.width = '100%';
           calibCountdown.innerText = "🌟";
           calibInstruction.innerText = "しっかり読込完了！";
-          calibSubInstruction.innerText = "直立姿勢と体幹軸を高精度にロックしました";
+          calibSubInstruction.innerText = "基準姿勢と体幹軸をロックしました";
           playBeep(880, 'sine', 0.25);
           applyCalibration();
           setTimeout(() => {
             calibOverlay.classList.remove('active');
             calibMode = null;
-          }, 800);
+          }, 700);
         }
       } else {
-        if (calibStableFrames > 0) calibStableFrames = Math.max(0, calibStableFrames - 2);
+        if (calibStableFrames > 0) calibStableFrames = Math.max(0, calibStableFrames - 1);
         const pct = Math.round((calibStableFrames / REQUIRED_STABLE_FRAMES) * 100);
         calibProgressBar.style.width = `${pct}%`;
 
-        if (!isVisible) {
-          calibInstruction.innerText = "足元まで映してください";
-          calibSubInstruction.innerText = "頭から足首まで全身が画面に入るよう離れてください";
+        if (!hasTorso) {
+          calibInstruction.innerText = "カメラに体を映してください";
+          calibSubInstruction.innerText = "肩から腰にかけて画面内に収めてください";
         } else {
           calibInstruction.innerText = "静止してください";
-          calibSubInstruction.innerText = "動かずに直立姿勢をキープしてください";
+          calibSubInstruction.innerText = "動かずに姿勢をキープしてください";
         }
       }
     }
