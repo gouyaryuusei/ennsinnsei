@@ -14,9 +14,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   
-  <!-- MediaPipe Pose (オフライン完全対応ローカル読み込み) -->
-  <script src="./mediapipe/camera_utils.js"></script>
-  <script src="./mediapipe/pose.js"></script>
+  <!-- MediaPipe Pose (ローカル優先 + スマホ・環境依存防止用CDN自動フォールバック) -->
+  <script>let useLocalMediaPipe = true;</script>
+  <script src="./mediapipe/camera_utils.js" onerror="useLocalMediaPipe=false;this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';"></script>
+  <script src="./mediapipe/pose.js" onerror="useLocalMediaPipe=false;this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js';"></script>
 
   <style>
     :root {
@@ -1308,19 +1309,31 @@
     // --- MediaPipe Pose初期化 ---
     function initPose() {
       if (poseDetector) return;
-      poseDetector = new Pose({
-        locateFile: (file) => `./mediapipe/${file}`
-      });
+      if (typeof Pose === 'undefined') {
+        console.warn('Pose library is not loaded yet');
+        return;
+      }
+      try {
+        poseDetector = new Pose({
+          locateFile: (file) => {
+            return useLocalMediaPipe 
+              ? `./mediapipe/${file}` 
+              : `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+          }
+        });
 
-      poseDetector.setOptions({
-        modelComplexity: 1,
-        smoothLandmarks: true,
-        enableSegmentation: false,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-      });
+        poseDetector.setOptions({
+          modelComplexity: 1,
+          smoothLandmarks: true,
+          enableSegmentation: false,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
 
-      poseDetector.onResults(onPoseResults);
+        poseDetector.onResults(onPoseResults);
+      } catch (err) {
+        console.error("Failed to init Pose:", err);
+      }
     }
 
     // --- カメラ起動（縦横比の強制歪みを排除） ---
@@ -1329,26 +1342,10 @@
         currentStream.getTracks().forEach(track => track.stop());
       }
 
-      initPose();
-
-      // HTTPS または localhost チェック（スマホブラウザの必須セキュリティ条件）
-      const isSecure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-      if (!isSecure && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
-        alert("⚠️ スマホのセキュリティ仕様エラー:\n\nスマートフォン（iPhone / Android）のブラウザは、セキュリティ保護のため【HTTPS（https://〜）】接続でないとカメラの起動が禁止されています。\n\n※PCのIPアドレス（http://192.168.x.x）で開いている場合は、HTTPSで開くか、GitHub Pages等の無料ホスティングに配置して開いてください。");
-        return;
-      }
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("お使いのブラウザはカメラ機能（getUserMedia）に対応していないか、プライベートブラウズ等で制限されています。");
-        return;
-      }
-
-      // スマホでカメラエラーを起こしにくい flexible な制約（ideal指定）
+      // 固定の幅・高さを強制せず、端末の自然な向き（縦持ちなら縦長）で取得（以前の正常動作設定）
       const constraints = {
         video: {
-          facingMode: { ideal: currentFacingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          facingMode: currentFacingMode
         },
         audio: false
       };
@@ -1365,18 +1362,18 @@
         isCameraRunning = true;
         placeholder.classList.add('hidden');
         updateCameraUI();
+
+        // カメラ接続後にPose検出器を初期化
+        try {
+          initPose();
+        } catch (poseErr) {
+          console.warn("Pose init deferred:", poseErr);
+        }
+
         processVideoLoop();
       } catch (err) {
         console.error("Camera Error:", err);
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          alert("【カメラ権限エラー】\nカメラの使用が許可されていません。\nブラウザのアドレスバー左側のアイコン（鍵マークなど）やスマホの設定から、カメラへのアクセスを『許可』してください。");
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          alert("【カメラが見つかりません】\n利用可能なカメラが検出されませんでした。");
-        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-          alert("【カメラ占有エラー】\nカメラが他のアプリで使用されている可能性があります。他のカメラアプリを終了してください。");
-        } else {
-          alert("カメラの起動に失敗しました:\n" + err.name + " - " + err.message);
-        }
+        alert("カメラの起動に失敗しました: " + (err.message || err.name));
       }
     }
 
