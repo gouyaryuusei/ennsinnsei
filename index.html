@@ -14,10 +14,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   
-  <!-- MediaPipe Pose (ローカル優先 + スマホ・環境依存防止用CDN自動フォールバック) -->
-  <script>let useLocalMediaPipe = true;</script>
-  <script src="./mediapipe/camera_utils.js" onerror="useLocalMediaPipe=false;this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';"></script>
-  <script src="./mediapipe/pose.js" onerror="useLocalMediaPipe=false;this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js';"></script>
+  <!-- MediaPipe Pose (スマホ・オンライン環境では確実に以前同様の高速CDNから読み込み、オフライン時はローカルへ自動フォールバック) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous" onerror="this.onerror=null;this.src='./mediapipe/camera_utils.js';"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous" onerror="this.onerror=null;this.src='./mediapipe/pose.js';"></script>
 
   <style>
     :root {
@@ -1317,11 +1316,13 @@
         return;
       }
       try {
+        const isOffline = !navigator.onLine && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
         poseDetector = new Pose({
           locateFile: (file) => {
-            return useLocalMediaPipe 
-              ? `./mediapipe/${file}` 
-              : `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+            if (isOffline) {
+              return `./mediapipe/${file}`;
+            }
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
           }
         });
 
