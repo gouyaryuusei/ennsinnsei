@@ -1331,10 +1331,24 @@
 
       initPose();
 
-      // 固定の幅・高さを強制せず、端末の自然な向き（縦持ちなら縦長）で取得
+      // HTTPS または localhost チェック（スマホブラウザの必須セキュリティ条件）
+      const isSecure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      if (!isSecure && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
+        alert("⚠️ スマホのセキュリティ仕様エラー:\n\nスマートフォン（iPhone / Android）のブラウザは、セキュリティ保護のため【HTTPS（https://〜）】接続でないとカメラの起動が禁止されています。\n\n※PCのIPアドレス（http://192.168.x.x）で開いている場合は、HTTPSで開くか、GitHub Pages等の無料ホスティングに配置して開いてください。");
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("お使いのブラウザはカメラ機能（getUserMedia）に対応していないか、プライベートブラウズ等で制限されています。");
+        return;
+      }
+
+      // スマホでカメラエラーを起こしにくい flexible な制約（ideal指定）
       const constraints = {
         video: {
-          facingMode: currentFacingMode
+          facingMode: { ideal: currentFacingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         },
         audio: false
       };
@@ -1354,7 +1368,15 @@
         processVideoLoop();
       } catch (err) {
         console.error("Camera Error:", err);
-        alert("カメラの起動に失敗しました: " + err.message);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          alert("【カメラ権限エラー】\nカメラの使用が許可されていません。\nブラウザのアドレスバー左側のアイコン（鍵マークなど）やスマホの設定から、カメラへのアクセスを『許可』してください。");
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          alert("【カメラが見つかりません】\n利用可能なカメラが検出されませんでした。");
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          alert("【カメラ占有エラー】\nカメラが他のアプリで使用されている可能性があります。他のカメラアプリを終了してください。");
+        } else {
+          alert("カメラの起動に失敗しました:\n" + err.name + " - " + err.message);
+        }
       }
     }
 
